@@ -1,3 +1,8 @@
 <Solution>
-  <Project Path="Estuscia-Investment-EMS-Backend/Estuscia-Investment-EMS-Backend.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/Estuscia.Application/Estuscia.Application.csproj" />
+    <Project Path="src/Estuscia.Domain/Estuscia.Domain.csproj" />
+    <Project Path="src/Estuscia.Infrastructure/Estuscia.Infrastructure.csproj" />
+    <Project Path="src/Estuscia.WebApi/Estuscia.WebApi.csproj" />
+  </Folder>
 </Solution>
