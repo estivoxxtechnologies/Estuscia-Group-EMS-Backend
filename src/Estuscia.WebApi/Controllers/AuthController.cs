@@ -1,5 +1,6 @@
 using Estuscia.Application.Common.DTOs;
 using Estuscia.Application.Common.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,10 +21,19 @@ public class AuthController : ControllerBase
         _jwtGenerator = jwtGenerator;
     }
 
+    // ============================================================
+    // LOGIN
+    // ============================================================
+
     [HttpPost("login")]
+    [AllowAnonymous]
     public async Task<IActionResult> Login(
         [FromBody] LoginRequestDto request)
     {
+        // --------------------------------------------------------
+        // Validate request
+        // --------------------------------------------------------
+
         if (string.IsNullOrWhiteSpace(request.Email) ||
             string.IsNullOrWhiteSpace(request.Password))
         {
@@ -33,13 +43,30 @@ public class AuthController : ControllerBase
             });
         }
 
-        var email = request.Email.Trim().ToLowerInvariant();
+        var email =
+            request.Email
+                .Trim()
+                .ToLowerInvariant();
 
-        var user = await _context.Users
-            .IgnoreQueryFilters()
-            .Include(u => u.Tenant)
-            .FirstOrDefaultAsync(u =>
-                u.Email.ToLower() == email);
+        // --------------------------------------------------------
+        // Find user
+        //
+        // IMPORTANT:
+        // Login is intentionally allowed to bypass the normal
+        // tenant query filter because we don't know the tenant
+        // until we identify the user.
+        // --------------------------------------------------------
+
+        var user =
+            await _context.Users
+                .IgnoreQueryFilters()
+                .Include(u => u.Tenant)
+                .FirstOrDefaultAsync(
+                    u => u.Email.ToLower() == email);
+
+        // --------------------------------------------------------
+        // Do not reveal whether the email exists.
+        // --------------------------------------------------------
 
         if (user == null)
         {
@@ -49,13 +76,22 @@ public class AuthController : ControllerBase
             });
         }
 
+        // --------------------------------------------------------
+        // Account status
+        // --------------------------------------------------------
+
         if (!user.IsActive)
         {
             return Unauthorized(new
             {
-                message = "Your account is inactive. Please contact an administrator."
+                message =
+                    "Your account is inactive. Please contact an administrator."
             });
         }
+
+        // --------------------------------------------------------
+        // Password verification
+        // --------------------------------------------------------
 
         if (!BCrypt.Net.BCrypt.Verify(
                 request.Password,
@@ -67,6 +103,19 @@ public class AuthController : ControllerBase
             });
         }
 
+        // --------------------------------------------------------
+        // Tenant validation
+        // --------------------------------------------------------
+
+        if (user.Tenant == null)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your account is not associated with an organization."
+            });
+        }
+
         if (!user.Tenant.IsActive)
         {
             return Unauthorized(new
@@ -75,24 +124,72 @@ public class AuthController : ControllerBase
             });
         }
 
-        var accessToken = _jwtGenerator.GenerateToken(user);
-        var refreshToken = _jwtGenerator.GenerateRefreshToken();
+        // --------------------------------------------------------
+        // Generate JWT
+        // --------------------------------------------------------
 
-        var response = new AuthResponseDto(
-            accessToken,
-            refreshToken,
-            new UserDto(
-                user.Id,
-                user.Email,
-                user.FullName,
-                user.Role.ToString().ToLowerInvariant(),
-                user.Designation,
-                user.BranchName,
-                user.TenantId,
-                user.Tenant.Name,
-                user.AvatarUrl
-            )
-        );
+        var accessToken =
+            _jwtGenerator.GenerateToken(user);
+
+        var refreshToken =
+            _jwtGenerator.GenerateRefreshToken();
+
+        // --------------------------------------------------------
+        // Return authenticated user
+        //
+        // IMPORTANT:
+        // Keep the role naming consistent with the JWT.
+        // --------------------------------------------------------
+
+        var role =
+            user.Role switch
+            {
+                Estuscia.Domain.Enums.UserRole.SuperAdmin
+                    => "super_admin",
+
+                Estuscia.Domain.Enums.UserRole.CompanyAdmin
+                    => "company_admin",
+
+                Estuscia.Domain.Enums.UserRole.HrOps
+                    => "hr_ops",
+
+                Estuscia.Domain.Enums.UserRole.BranchManager
+                    => "branch_manager",
+
+                Estuscia.Domain.Enums.UserRole.SalesStaff
+                    => "sales_staff",
+
+                Estuscia.Domain.Enums.UserRole.Developer
+                    => "developer",
+
+                Estuscia.Domain.Enums.UserRole.SupportStaff
+                    => "support_staff",
+
+                Estuscia.Domain.Enums.UserRole.KnowledgeTrainer
+                    => "knowledge_trainer",
+
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(user.Role),
+                    user.Role,
+                    "Unsupported user role.")
+            };
+
+        var response =
+            new AuthResponseDto(
+                accessToken,
+                refreshToken,
+                new UserDto(
+                    user.Id,
+                    user.Email,
+                    user.FullName,
+                    role,
+                    user.Designation,
+                    user.BranchName,
+                    user.TenantId,
+                    user.Tenant.Name,
+                    user.AvatarUrl
+                )
+            );
 
         return Ok(response);
     }

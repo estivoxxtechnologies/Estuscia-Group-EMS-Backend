@@ -325,15 +325,61 @@ public class AppDbContext : DbContext, IAppDbContext
         // Automatically assign TenantId to new multi-tenant data
         // --------------------------------------------------------
 
-        foreach (var entry in ChangeTracker.Entries<IMultiTenantEntity>())
+// --------------------------------------------------------
+// TENANT SECURITY
+// --------------------------------------------------------
+
+foreach (var entry in ChangeTracker.Entries<IMultiTenantEntity>())
         {
-            if (entry.State == EntityState.Added &&
-                _tenantService.TenantId.HasValue)
+            if (entry.State == EntityState.Added)
             {
-                if (entry.Entity.TenantId == Guid.Empty)
+                // SuperAdmin may create records with an explicitly
+                // selected tenant through controlled server-side APIs.
+                if (_tenantService.IsSuperAdmin)
                 {
-                    entry.Entity.TenantId =
-                        _tenantService.TenantId.Value;
+                    if (entry.Entity.TenantId == Guid.Empty &&
+                        _tenantService.TenantId.HasValue)
+                    {
+                        entry.Entity.TenantId =
+                            _tenantService.TenantId.Value;
+                    }
+
+                    continue;
+                }
+
+                // Normal users MUST have a tenant.
+                if (!_tenantService.TenantId.HasValue)
+                {
+                    throw new InvalidOperationException(
+                        "Authenticated user does not have a tenant.");
+                }
+
+                // Always force the entity to the authenticated user's
+                // tenant. Never trust TenantId supplied by the client.
+                entry.Entity.TenantId =
+                    _tenantService.TenantId.Value;
+            }
+
+            // ----------------------------------------------------
+            // PREVENT CROSS-TENANT MODIFICATION
+            // ----------------------------------------------------
+
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                if (_tenantService.IsSuperAdmin)
+                    continue;
+
+                if (!_tenantService.TenantId.HasValue)
+                {
+                    throw new InvalidOperationException(
+                        "Authenticated user does not have a tenant.");
+                }
+
+                if (entry.Entity.TenantId !=
+                    _tenantService.TenantId.Value)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Cross-tenant data modification is not allowed.");
                 }
             }
         }
