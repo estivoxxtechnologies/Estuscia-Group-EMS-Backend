@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Estuscia_Investment_EMS_Backend.Migrations
+namespace Estuscia.Infrastructure.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration
@@ -149,6 +149,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     BranchName = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     City = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    IsActive = table.Column<bool>(type: "bit", nullable: false),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CreatedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: true)
@@ -156,6 +157,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_TenantBranches", x => x.Id);
+                    table.UniqueConstraint("AK_TenantBranches_TenantId_Id", x => new { x.TenantId, x.Id });
                     table.ForeignKey(
                         name: "FK_TenantBranches_Tenants_TenantId",
                         column: x => x.TenantId,
@@ -170,7 +172,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    BranchName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    BranchId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     FullName = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Email = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     PasswordHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
@@ -181,6 +183,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     SalaryBase = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
                     AvatarUrl = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
+                    TenantBranchId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CreatedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: true)
@@ -188,6 +191,17 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Users", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Users_TenantBranches_TenantBranchId",
+                        column: x => x.TenantBranchId,
+                        principalTable: "TenantBranches",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_Users_TenantBranches_TenantId_BranchId",
+                        columns: x => new { x.TenantId, x.BranchId },
+                        principalTable: "TenantBranches",
+                        principalColumns: new[] { "TenantId", "Id" },
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_Users_Tenants_TenantId",
                         column: x => x.TenantId,
@@ -202,7 +216,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    BranchName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    BranchId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     UserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Date = table.Column<DateOnly>(type: "date", nullable: false),
                     CheckInTime = table.Column<TimeOnly>(type: "time", nullable: true),
@@ -210,6 +224,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     Status = table.Column<int>(type: "int", nullable: false),
                     OvertimeHours = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
                     BiometricDeviceId = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    TenantBranchId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CreatedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: true)
@@ -217,6 +232,17 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_AttendanceRecords", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AttendanceRecords_TenantBranches_TenantBranchId",
+                        column: x => x.TenantBranchId,
+                        principalTable: "TenantBranches",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_AttendanceRecords_TenantBranches_TenantId_BranchId",
+                        columns: x => new { x.TenantId, x.BranchId },
+                        principalTable: "TenantBranches",
+                        principalColumns: new[] { "TenantId", "Id" },
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_AttendanceRecords_Users_UserId",
                         column: x => x.UserId,
@@ -231,7 +257,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    BranchName = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    BranchId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     ReceiptNumber = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     CustomerName = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     CustomerPhone = table.Column<string>(type: "nvarchar(max)", nullable: false),
@@ -247,6 +273,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     IssuedByStaffId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Status = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     DigitalSecurityHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    TenantBranchId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CreatedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: true)
@@ -254,6 +281,17 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_CustomerReceipts", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_CustomerReceipts_TenantBranches_TenantBranchId",
+                        column: x => x.TenantBranchId,
+                        principalTable: "TenantBranches",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_CustomerReceipts_TenantBranches_TenantId_BranchId",
+                        columns: x => new { x.TenantId, x.BranchId },
+                        principalTable: "TenantBranches",
+                        principalColumns: new[] { "TenantId", "Id" },
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_CustomerReceipts_Users_IssuedByStaffId",
                         column: x => x.IssuedByStaffId,
@@ -268,7 +306,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    BranchName = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    BranchId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     UserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     WorkDate = table.Column<DateOnly>(type: "date", nullable: false),
                     WorkType = table.Column<int>(type: "int", nullable: false),
@@ -284,6 +322,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     Status = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     ManagerNotes = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     ReviewedByManagerId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    TenantBranchId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CreatedByUserId = table.Column<string>(type: "nvarchar(max)", nullable: true)
@@ -291,6 +330,17 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_DailyWorkLogs", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_DailyWorkLogs_TenantBranches_TenantBranchId",
+                        column: x => x.TenantBranchId,
+                        principalTable: "TenantBranches",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_DailyWorkLogs_TenantBranches_TenantId_BranchId",
+                        columns: x => new { x.TenantId, x.BranchId },
+                        principalTable: "TenantBranches",
+                        principalColumns: new[] { "TenantId", "Id" },
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_DailyWorkLogs_Users_UserId",
                         column: x => x.UserId,
@@ -333,9 +383,14 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_AttendanceRecords_TenantId_UserId_Date",
+                name: "IX_AttendanceRecords_TenantBranchId",
                 table: "AttendanceRecords",
-                columns: new[] { "TenantId", "UserId", "Date" });
+                column: "TenantBranchId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AttendanceRecords_TenantId_BranchId_UserId_Date",
+                table: "AttendanceRecords",
+                columns: new[] { "TenantId", "BranchId", "UserId", "Date" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_AttendanceRecords_UserId",
@@ -348,15 +403,30 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 column: "IssuedByStaffId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_CustomerReceipts_TenantBranchId",
+                table: "CustomerReceipts",
+                column: "TenantBranchId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CustomerReceipts_TenantId_BranchId",
+                table: "CustomerReceipts",
+                columns: new[] { "TenantId", "BranchId" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_CustomerReceipts_TenantId_ReceiptNumber",
                 table: "CustomerReceipts",
                 columns: new[] { "TenantId", "ReceiptNumber" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_DailyWorkLogs_TenantId_BranchName_WorkDate",
+                name: "IX_DailyWorkLogs_TenantBranchId",
                 table: "DailyWorkLogs",
-                columns: new[] { "TenantId", "BranchName", "WorkDate" });
+                column: "TenantBranchId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_DailyWorkLogs_TenantId_BranchId_WorkDate",
+                table: "DailyWorkLogs",
+                columns: new[] { "TenantId", "BranchId", "WorkDate" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_DailyWorkLogs_UserId",
@@ -415,9 +485,14 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_Users_TenantId",
+                name: "IX_Users_TenantBranchId",
                 table: "Users",
-                column: "TenantId");
+                column: "TenantBranchId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Users_TenantId_BranchId",
+                table: "Users",
+                columns: new[] { "TenantId", "BranchId" });
         }
 
         /// <inheritdoc />
@@ -445,9 +520,6 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                 name: "RoleModulePermissions");
 
             migrationBuilder.DropTable(
-                name: "TenantBranches");
-
-            migrationBuilder.DropTable(
                 name: "UserModulePermissions");
 
             migrationBuilder.DropTable(
@@ -455,6 +527,9 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
 
             migrationBuilder.DropTable(
                 name: "Users");
+
+            migrationBuilder.DropTable(
+                name: "TenantBranches");
 
             migrationBuilder.DropTable(
                 name: "Tenants");

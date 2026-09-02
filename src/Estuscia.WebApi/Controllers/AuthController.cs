@@ -25,14 +25,14 @@ public class AuthController : ControllerBase
     // LOGIN
     // ============================================================
 
-    [HttpPost("login")]
-    [AllowAnonymous]
-    public async Task<IActionResult> Login(
-        [FromBody] LoginRequestDto request)
+[HttpPost("login")]
+[AllowAnonymous]
+public async Task<IActionResult> Login(
+    [FromBody] LoginRequestDto request)
     {
-        // --------------------------------------------------------
-        // Validate request
-        // --------------------------------------------------------
+        // ============================================================
+        // VALIDATE REQUEST
+        // ============================================================
 
         if (string.IsNullOrWhiteSpace(request.Email) ||
             string.IsNullOrWhiteSpace(request.Password))
@@ -43,30 +43,30 @@ public class AuthController : ControllerBase
             });
         }
 
-        var email =
-            request.Email
-                .Trim()
-                .ToLowerInvariant();
+        var email = request.Email
+            .Trim()
+            .ToLowerInvariant();
 
-        // --------------------------------------------------------
-        // Find user
+
+        // ============================================================
+        // FIND USER
         //
-        // IMPORTANT:
-        // Login is intentionally allowed to bypass the normal
-        // tenant query filter because we don't know the tenant
-        // until we identify the user.
-        // --------------------------------------------------------
+        // IgnoreQueryFilters() is required here because we don't
+        // know the tenant until we identify the user.
+        // ============================================================
 
         var user =
             await _context.Users
                 .IgnoreQueryFilters()
                 .Include(u => u.Tenant)
+                .Include(u => u.Branch)
                 .FirstOrDefaultAsync(
                     u => u.Email.ToLower() == email);
 
-        // --------------------------------------------------------
-        // Do not reveal whether the email exists.
-        // --------------------------------------------------------
+
+        // ============================================================
+        // INVALID USER
+        // ============================================================
 
         if (user == null)
         {
@@ -76,9 +76,10 @@ public class AuthController : ControllerBase
             });
         }
 
-        // --------------------------------------------------------
-        // Account status
-        // --------------------------------------------------------
+
+        // ============================================================
+        // ACCOUNT STATUS
+        // ============================================================
 
         if (!user.IsActive)
         {
@@ -89,9 +90,10 @@ public class AuthController : ControllerBase
             });
         }
 
-        // --------------------------------------------------------
-        // Password verification
-        // --------------------------------------------------------
+
+        // ============================================================
+        // PASSWORD VERIFICATION
+        // ============================================================
 
         if (!BCrypt.Net.BCrypt.Verify(
                 request.Password,
@@ -103,9 +105,10 @@ public class AuthController : ControllerBase
             });
         }
 
-        // --------------------------------------------------------
-        // Tenant validation
-        // --------------------------------------------------------
+
+        // ============================================================
+        // TENANT VALIDATION
+        // ============================================================
 
         if (user.Tenant == null)
         {
@@ -124,9 +127,47 @@ public class AuthController : ControllerBase
             });
         }
 
-        // --------------------------------------------------------
-        // Generate JWT
-        // --------------------------------------------------------
+
+        // ============================================================
+        // BRANCH VALIDATION
+        //
+        // Every branch-scoped user must have a valid branch.
+        // ============================================================
+
+        if (user.Branch == null)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your account is not associated with a valid branch."
+            });
+        }
+
+        if (!user.Branch.IsActive)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your branch is inactive. Please contact an administrator."
+            });
+        }
+
+        // Extra safety:
+        // Make sure the branch actually belongs to the user's tenant.
+
+        if (user.Branch.TenantId != user.TenantId)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your account has an invalid branch configuration."
+            });
+        }
+
+
+        // ============================================================
+        // GENERATE JWT
+        // ============================================================
 
         var accessToken =
             _jwtGenerator.GenerateToken(user);
@@ -134,12 +175,10 @@ public class AuthController : ControllerBase
         var refreshToken =
             _jwtGenerator.GenerateRefreshToken();
 
-        // --------------------------------------------------------
-        // Return authenticated user
-        //
-        // IMPORTANT:
-        // Keep the role naming consistent with the JWT.
-        // --------------------------------------------------------
+
+        // ============================================================
+        // ROLE
+        // ============================================================
 
         var role =
             user.Role switch
@@ -174,6 +213,11 @@ public class AuthController : ControllerBase
                     "Unsupported user role.")
             };
 
+
+        // ============================================================
+        // RESPONSE
+        // ============================================================
+
         var response =
             new AuthResponseDto(
                 accessToken,
@@ -183,13 +227,112 @@ public class AuthController : ControllerBase
                     user.Email,
                     user.FullName,
                     role,
-                    user.Designation,
-                    user.BranchName,
+                    user.Designation ?? string.Empty,
+                    user.BranchId,
+                    user.Branch.BranchName,
                     user.TenantId,
                     user.Tenant.Name,
-                    user.AvatarUrl
+                    user.AvatarUrl ?? string.Empty
                 )
             );
+
+        return Ok(response);
+    }
+
+    
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> Me()
+    {
+        var userIdClaim =
+            User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+            ?? User.FindFirst("user_id")?.Value;
+
+        if (!Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var user = await _context.Users
+    .Include(u => u.Tenant)
+    .Include(u => u.Branch)
+    .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+        {
+            return Unauthorized();
+        }
+
+        if (!user.IsActive)
+        {
+            return Unauthorized(new
+            {
+                message = "Your account is inactive."
+            });
+        }
+
+        if (user.Tenant == null)
+        {
+            return Unauthorized(new
+            {
+                message = "Your account is not associated with an organization."
+            });
+        }
+
+        if (!user.Tenant.IsActive)
+        {
+            return Unauthorized(new
+            {
+                message = "This organization is inactive."
+            });
+        }
+
+        var role =
+            user.Role switch
+            {
+                Estuscia.Domain.Enums.UserRole.SuperAdmin
+                    => "super_admin",
+
+                Estuscia.Domain.Enums.UserRole.CompanyAdmin
+                    => "company_admin",
+
+                Estuscia.Domain.Enums.UserRole.HrOps
+                    => "hr_ops",
+
+                Estuscia.Domain.Enums.UserRole.BranchManager
+                    => "branch_manager",
+
+                Estuscia.Domain.Enums.UserRole.SalesStaff
+                    => "sales_staff",
+
+                Estuscia.Domain.Enums.UserRole.Developer
+                    => "developer",
+
+                Estuscia.Domain.Enums.UserRole.SupportStaff
+                    => "support_staff",
+
+                Estuscia.Domain.Enums.UserRole.KnowledgeTrainer
+                    => "knowledge_trainer",
+
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(user.Role),
+                    user.Role,
+                    "Unsupported user role.")
+            };
+
+        var response = new UserDto(
+    user.Id,
+    user.Email,
+    user.FullName,
+    role,
+    user.Designation ?? string.Empty,
+    user.BranchId,
+    user.Branch.BranchName,
+    user.TenantId,
+    user.Tenant.Name,
+    user.AvatarUrl ?? string.Empty
+);
 
         return Ok(response);
     }

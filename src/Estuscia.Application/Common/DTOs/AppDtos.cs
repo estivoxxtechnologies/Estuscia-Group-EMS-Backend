@@ -27,6 +27,7 @@ public record UserDto(
     string Name,
     string Role,
     string Designation,
+    Guid BranchId,
     string Branch,
     Guid TenantId,
     string TenantName,
@@ -87,7 +88,7 @@ public record CreateTenantDto(
 
 public record CreateUserDto(
     Guid TenantId,
-    string BranchName,
+    Guid BranchId,
     string FullName,
     string Email,
     string Password,

@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
-namespace Estuscia_Investment_EMS_Backend.Migrations
+namespace Estuscia.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
     partial class AppDbContextModelSnapshot : ModelSnapshot
@@ -17,7 +17,7 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "8.0.26")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -32,9 +32,8 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("BranchName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("datetime2");
@@ -75,6 +74,9 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     b.Property<decimal>("SalaryBase")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<Guid?>("TenantBranchId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -86,7 +88,9 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.HasIndex("TenantId");
+                    b.HasIndex("TenantBranchId");
+
+                    b.HasIndex("TenantId", "BranchId");
 
                     b.ToTable("Users");
                 });
@@ -100,9 +104,8 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     b.Property<string>("BiometricDeviceId")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("BranchName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<TimeOnly?>("CheckInTime")
                         .HasColumnType("time");
@@ -125,6 +128,9 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<Guid?>("TenantBranchId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -136,9 +142,11 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TenantBranchId");
+
                     b.HasIndex("UserId");
 
-                    b.HasIndex("TenantId", "UserId", "Date");
+                    b.HasIndex("TenantId", "BranchId", "UserId", "Date");
 
                     b.ToTable("AttendanceRecords");
                 });
@@ -202,9 +210,8 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("BranchName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("datetime2");
@@ -261,6 +268,9 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("TenantBranchId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -270,6 +280,10 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("IssuedByStaffId");
+
+                    b.HasIndex("TenantBranchId");
+
+                    b.HasIndex("TenantId", "BranchId");
 
                     b.HasIndex("TenantId", "ReceiptNumber")
                         .IsUnique();
@@ -286,9 +300,8 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     b.Property<string>("BlockersEncountered")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("BranchName")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                    b.Property<Guid>("BranchId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int?>("CallsConnected")
                         .HasColumnType("int");
@@ -331,6 +344,9 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("TenantBranchId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -348,9 +364,11 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TenantBranchId");
+
                     b.HasIndex("UserId");
 
-                    b.HasIndex("TenantId", "BranchName", "WorkDate");
+                    b.HasIndex("TenantId", "BranchId", "WorkDate");
 
                     b.ToTable("DailyWorkLogs");
                 });
@@ -601,6 +619,9 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                     b.Property<string>("CreatedByUserId")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -665,22 +686,48 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
 
             modelBuilder.Entity("Estuscia.Domain.Entities.ApplicationUser", b =>
                 {
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", null)
+                        .WithMany("Users")
+                        .HasForeignKey("TenantBranchId");
+
                     b.HasOne("Estuscia.Domain.Entities.Tenant", "Tenant")
                         .WithMany("Users")
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Branch");
+
                     b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("Estuscia.Domain.Entities.AttendanceRecord", b =>
                 {
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", null)
+                        .WithMany("AttendanceRecords")
+                        .HasForeignKey("TenantBranchId");
+
                     b.HasOne("Estuscia.Domain.Entities.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Branch");
 
                     b.Navigation("User");
                 });
@@ -693,16 +740,42 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", null)
+                        .WithMany("CustomerReceipts")
+                        .HasForeignKey("TenantBranchId");
+
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Branch");
+
                     b.Navigation("IssuedByStaff");
                 });
 
             modelBuilder.Entity("Estuscia.Domain.Entities.DailyWorkLog", b =>
                 {
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", null)
+                        .WithMany("DailyWorkLogs")
+                        .HasForeignKey("TenantBranchId");
+
                     b.HasOne("Estuscia.Domain.Entities.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Branch");
 
                     b.Navigation("User");
                 });
@@ -720,11 +793,13 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
 
             modelBuilder.Entity("Estuscia.Domain.Entities.TenantBranch", b =>
                 {
-                    b.HasOne("Estuscia.Domain.Entities.Tenant", null)
+                    b.HasOne("Estuscia.Domain.Entities.Tenant", "Tenant")
                         .WithMany("Branches")
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("Estuscia.Domain.Entities.UserModulePermission", b =>
@@ -749,6 +824,17 @@ namespace Estuscia_Investment_EMS_Backend.Migrations
             modelBuilder.Entity("Estuscia.Domain.Entities.Tenant", b =>
                 {
                     b.Navigation("Branches");
+
+                    b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("Estuscia.Domain.Entities.TenantBranch", b =>
+                {
+                    b.Navigation("AttendanceRecords");
+
+                    b.Navigation("CustomerReceipts");
+
+                    b.Navigation("DailyWorkLogs");
 
                     b.Navigation("Users");
                 });

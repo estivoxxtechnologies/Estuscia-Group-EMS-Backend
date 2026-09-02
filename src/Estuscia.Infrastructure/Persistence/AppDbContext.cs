@@ -68,6 +68,9 @@ public class AppDbContext : DbContext, IAppDbContext
         // ========================================================
 
         modelBuilder.Entity<TenantBranch>()
+            .HasKey(e => e.Id);
+
+        modelBuilder.Entity<TenantBranch>()
             .HasIndex(e => new
             {
                 e.TenantId,
@@ -76,7 +79,14 @@ public class AppDbContext : DbContext, IAppDbContext
             .IsUnique();
 
         modelBuilder.Entity<TenantBranch>()
-            .HasOne<Tenant>()
+            .HasAlternateKey(e => new
+            {
+                e.TenantId,
+                e.Id
+            });
+
+        modelBuilder.Entity<TenantBranch>()
+            .HasOne(e => e.Tenant)
             .WithMany(e => e.Branches)
             .HasForeignKey(e => e.TenantId)
             .OnDelete(DeleteBehavior.Cascade);
@@ -96,6 +106,20 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasForeignKey(e => e.TenantId)
             .OnDelete(DeleteBehavior.Cascade);
 
+        modelBuilder.Entity<ApplicationUser>()
+            .HasOne(e => e.Branch)
+            .WithMany()
+            .HasForeignKey(e => new
+            {
+                e.TenantId,
+                e.BranchId
+            })
+            .HasPrincipalKey(e => new
+            {
+                e.TenantId,
+                e.Id
+            })
+            .OnDelete(DeleteBehavior.Restrict);
 
         // ========================================================
         // MODULE
@@ -177,7 +201,7 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasIndex(e => new
             {
                 e.TenantId,
-                e.BranchName,
+                e.BranchId,
                 e.WorkDate
             });
 
@@ -185,6 +209,21 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasOne(e => e.User)
             .WithMany()
             .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<DailyWorkLog>()
+            .HasOne(e => e.Branch)
+            .WithMany()
+            .HasForeignKey(e => new
+            {
+                e.TenantId,
+                e.BranchId
+            })
+            .HasPrincipalKey(e => new
+            {
+                e.TenantId,
+                e.Id
+            })
             .OnDelete(DeleteBehavior.Restrict);
 
 
@@ -206,6 +245,21 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasForeignKey(e => e.IssuedByStaffId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        modelBuilder.Entity<CustomerReceipt>()
+            .HasOne(e => e.Branch)
+            .WithMany()
+            .HasForeignKey(e => new
+            {
+                e.TenantId,
+                e.BranchId
+            })
+            .HasPrincipalKey(e => new
+            {
+                e.TenantId,
+                e.Id
+            })
+            .OnDelete(DeleteBehavior.Restrict);
+
 
         // ========================================================
         // ATTENDANCE
@@ -218,9 +272,25 @@ public class AppDbContext : DbContext, IAppDbContext
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<AttendanceRecord>()
+            .HasOne(e => e.Branch)
+            .WithMany()
+            .HasForeignKey(e => new
+            {
+                e.TenantId,
+                e.BranchId
+            })
+            .HasPrincipalKey(e => new
+            {
+                e.TenantId,
+                e.Id
+            })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<AttendanceRecord>()
             .HasIndex(e => new
             {
                 e.TenantId,
+                e.BranchId,
                 e.UserId,
                 e.Date
             });

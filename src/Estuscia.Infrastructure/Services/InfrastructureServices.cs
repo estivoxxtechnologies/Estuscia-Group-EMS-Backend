@@ -218,7 +218,7 @@ public class JwtTokenGenerator : IJwtTokenGenerator
 
     new Claim("tenant_id", user.TenantId.ToString()),
 
-    new Claim("branch", user.BranchName ?? string.Empty),
+    new Claim("branch_id", user.BranchId.ToString()),
 
     new Claim("designation", user.Designation ?? string.Empty)
 };

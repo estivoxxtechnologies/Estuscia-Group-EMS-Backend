@@ -18,100 +18,163 @@ public class Tenant : BaseEntity
 public class TenantBranch : BaseEntity, IMultiTenantEntity
 {
     public Guid TenantId { get; set; }
+
+    public Tenant Tenant { get; set; } = null!;
+
     public string BranchName { get; set; } = string.Empty;
+
     public string? City { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    public ICollection<ApplicationUser> Users { get; set; }
+        = new List<ApplicationUser>();
+
+    public ICollection<DailyWorkLog> DailyWorkLogs { get; set; }
+        = new List<DailyWorkLog>();
+
+    public ICollection<CustomerReceipt> CustomerReceipts { get; set; }
+        = new List<CustomerReceipt>();
+
+    public ICollection<AttendanceRecord> AttendanceRecords { get; set; }
+        = new List<AttendanceRecord>();
 }
 
 public class ApplicationUser : BaseEntity, IBranchScopedEntity
 {
     public Guid TenantId { get; set; }
+
     public Tenant Tenant { get; set; } = null!;
-    public string BranchName { get; set; } = string.Empty;
-    
+
+    public Guid BranchId { get; set; }
+
+    public TenantBranch Branch { get; set; } = null!;
+
     public string FullName { get; set; } = string.Empty;
+
     public string Email { get; set; } = string.Empty;
+
     public string PasswordHash { get; set; } = string.Empty;
+
     public string EmployeeCode { get; set; } = string.Empty;
+
     public UserRole Role { get; set; }
+
     public string Designation { get; set; } = string.Empty;
+
     public string Department { get; set; } = string.Empty;
+
     public decimal SalaryBase { get; set; }
+
     public string AvatarUrl { get; set; } = string.Empty;
+
     public bool IsActive { get; set; } = true;
 }
 
 public class DailyWorkLog : BaseEntity, IBranchScopedEntity
 {
     public Guid TenantId { get; set; }
-    public string BranchName { get; set; } = string.Empty;
-    
+
+    public Guid BranchId { get; set; }
+
+    public TenantBranch Branch { get; set; } = null!;
+
     public Guid UserId { get; set; }
+
     public ApplicationUser User { get; set; } = null!;
-    
+
     public DateOnly WorkDate { get; set; }
+
     public WorkLogType WorkType { get; set; }
+
     public string Narration { get; set; } = string.Empty;
-    
-    // Sales calls metrics
+
     public int? CallsMade { get; set; }
+
     public int? CallsConnected { get; set; }
+
     public int? LeadsRespondedWell { get; set; }
+
     public int? FollowUpsScheduled { get; set; }
-    
-    // Software developer sprint metrics
+
     public decimal? HoursSpent { get; set; }
+
     public string? FeaturesShipped { get; set; }
+
     public string? RepositoryPrLinks { get; set; }
+
     public string? BlockersEncountered { get; set; }
-    
-    public string Status { get; set; } = "Submitted"; // Submitted, Reviewed, Verified
+
+    public string Status { get; set; } = "Submitted";
+
     public string? ManagerNotes { get; set; }
+
     public Guid? ReviewedByManagerId { get; set; }
 }
-
 public class CustomerReceipt : BaseEntity, IBranchScopedEntity
 {
     public Guid TenantId { get; set; }
-    public string BranchName { get; set; } = string.Empty;
-    
+
+    public Guid BranchId { get; set; }
+
+    public TenantBranch Branch { get; set; } = null!;
+
     public string ReceiptNumber { get; set; } = string.Empty;
+
     public string CustomerName { get; set; } = string.Empty;
+
     public string CustomerPhone { get; set; } = string.Empty;
+
     public string CustomerEmail { get; set; } = string.Empty;
-    
+
     public decimal DepositAmount { get; set; }
+
     public string Currency { get; set; } = "USD";
+
     public string SlabTierName { get; set; } = string.Empty;
+
     public decimal AnnualYieldPercent { get; set; }
+
     public int LockinPeriodMonths { get; set; }
-    
+
     public string PaymentMode { get; set; } = "Bank Wire";
+
     public string BankReferenceNumber { get; set; } = string.Empty;
+
     public string PayoutFrequency { get; set; } = "Monthly";
-    
+
     public Guid IssuedByStaffId { get; set; }
+
     public ApplicationUser IssuedByStaff { get; set; } = null!;
-    
+
     public string Status { get; set; } = "Confirmed";
+
     public string DigitalSecurityHash { get; set; } = string.Empty;
 }
-
 public class AttendanceRecord : BaseEntity, IBranchScopedEntity
 {
     public Guid TenantId { get; set; }
-    public string BranchName { get; set; } = string.Empty;
-    
+
+    public Guid BranchId { get; set; }
+
+    public TenantBranch Branch { get; set; } = null!;
+
     public Guid UserId { get; set; }
+
     public ApplicationUser User { get; set; } = null!;
-    
+
     public DateOnly Date { get; set; }
+
     public TimeOnly? CheckInTime { get; set; }
+
     public TimeOnly? CheckOutTime { get; set; }
+
     public AttendanceStatus Status { get; set; }
+
     public decimal OvertimeHours { get; set; }
+
     public string? BiometricDeviceId { get; set; }
 }
-
 public class InvestmentSlab : BaseEntity, IMultiTenantEntity
 {
     public Guid TenantId { get; set; }

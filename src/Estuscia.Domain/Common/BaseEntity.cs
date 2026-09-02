@@ -7,7 +7,7 @@ public interface IMultiTenantEntity
 
 public interface IBranchScopedEntity : IMultiTenantEntity
 {
-    string BranchName { get; set; }
+    Guid BranchId { get; set; }
 }
 
 public abstract class BaseEntity
