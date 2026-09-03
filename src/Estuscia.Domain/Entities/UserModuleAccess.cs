@@ -4,12 +4,12 @@ namespace Estuscia.Domain.Entities;
 
 public class UserModuleAccess : BaseEntity, IMultiTenantEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
 
-    public Guid UserId { get; set; }
+    public int UserId { get; set; }
     public ApplicationUser User { get; set; } = null!;
 
-    public Guid ModuleId { get; set; }
+    public int ModuleId { get; set; }
     public Module Module { get; set; } = null!;
     public bool? CanView { get; set; }
     public bool? CanCreate { get; set; }

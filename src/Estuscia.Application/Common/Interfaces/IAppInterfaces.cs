@@ -52,13 +52,15 @@ public interface ICurrentTenantService
 {
     bool IsAuthenticated { get; }
 
-    Guid? TenantId { get; }
+    int? TenantId { get; }
+
+    int? UserId { get; }
+
+    int? BranchId { get; }
 
     string? BranchName { get; }
 
     bool IsSuperAdmin { get; }
-
-    Guid? UserId { get; }
 }
 
 
@@ -94,6 +96,6 @@ public interface IPermissionService
 public interface IExcelAttendanceParser
 {
     Task<List<AttendanceRecord>> ParseAttendanceFileAsync(
-        Stream fileStream,
-        Guid tenantId);
+    Stream fileStream,
+    int tenantId);
 }

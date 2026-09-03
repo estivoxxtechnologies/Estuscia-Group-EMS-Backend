@@ -2,6 +2,8 @@ using Estuscia.Application.Common.Interfaces;
 using Estuscia.Domain.Common;
 using Estuscia.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+
 
 namespace Estuscia.Infrastructure.Persistence;
 
@@ -24,6 +26,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<TenantBranch> TenantBranches => Set<TenantBranch>();
     public DbSet<ApplicationUser> Users => Set<ApplicationUser>();
+    public DbSet<Role> Roles => Set<Role>();
 
     // ============================================================
     // PERMISSIONS
@@ -97,14 +100,26 @@ public class AppDbContext : DbContext, IAppDbContext
         // ========================================================
 
         modelBuilder.Entity<ApplicationUser>()
-            .HasIndex(e => e.Email)
-            .IsUnique();
+    .HasIndex(e => new
+    {
+        e.TenantId,
+        e.Email
+    })
+    .IsUnique();
 
         modelBuilder.Entity<ApplicationUser>()
-            .HasOne(e => e.Tenant)
-            .WithMany(e => e.Users)
-            .HasForeignKey(e => e.TenantId)
-            .OnDelete(DeleteBehavior.Cascade);
+    .HasIndex(e => new
+    {
+        e.TenantId,
+        e.EmployeeCode
+    })
+    .IsUnique();
+
+        modelBuilder.Entity<ApplicationUser>()
+    .HasOne(e => e.Tenant)
+    .WithMany(e => e.Users)
+    .HasForeignKey(e => e.TenantId)
+    .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<ApplicationUser>()
             .HasOne(e => e.Branch)
@@ -120,6 +135,152 @@ public class AppDbContext : DbContext, IAppDbContext
                 e.Id
             })
             .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ApplicationUser>()
+            .HasOne(e => e.Role)
+            .WithMany(e => e.Users)
+            .HasForeignKey(e => e.RoleNumber)
+            .HasPrincipalKey(e => e.RoleNumber)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // ========================================================
+        // ROLE
+        //
+        // GLOBAL STATIC MASTER DATA
+        //
+        // Roles are NOT tenant-specific.
+        // They are seeded through EF Core migrations.
+        //
+        // ========================================================
+
+        modelBuilder.Entity<Role>(entity =>
+        {
+            entity.ToTable("Roles");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.RoleNumber)
+                .IsRequired();
+
+            entity.Property(e => e.RoleName)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(e => e.DisplayName)
+                .HasMaxLength(150)
+                .IsRequired();
+
+            entity.Property(e => e.IsActive)
+                .IsRequired();
+
+            entity.HasIndex(e => e.RoleNumber)
+                .IsUnique();
+
+            entity.HasIndex(e => e.RoleName)
+                .IsUnique();
+        });
+
+        // ========================================================
+        // STATIC ROLE DATA
+        //
+        // These records are managed by EF Core migrations.
+        // Role IDs are fixed integer values and must not change.
+        //
+        // RoleNumber is the stable business role identifier.
+        // Id is the database primary key.
+        //
+        // ========================================================
+
+        var roleCreatedAt = new DateTime(
+            2026,
+            1,
+            1,
+            0,
+            0,
+            0,
+            DateTimeKind.Utc);
+
+        modelBuilder.Entity<Role>().HasData(
+            new Role
+            {
+                Id = 1,
+                RoleNumber = 1,
+                RoleName = "super_admin",
+                DisplayName = "Super Admin",
+                IsActive = true,
+                CreatedAtUtc = roleCreatedAt
+            },
+
+            new Role
+            {
+                Id = 2,
+                RoleNumber = 2,
+                RoleName = "company_admin",
+                DisplayName = "Company Admin",
+                IsActive = true,
+                CreatedAtUtc = roleCreatedAt
+            },
+
+            new Role
+            {
+                Id = 3,
+                RoleNumber = 3,
+                RoleName = "hr_ops",
+                DisplayName = "HR Operations",
+                IsActive = true,
+                CreatedAtUtc = roleCreatedAt
+            },
+
+            new Role
+            {
+                Id = 4,
+                RoleNumber = 4,
+                RoleName = "branch_manager",
+                DisplayName = "Branch Manager",
+                IsActive = true,
+                CreatedAtUtc = roleCreatedAt
+            },
+
+            new Role
+            {
+                Id = 5,
+                RoleNumber = 5,
+                RoleName = "sales_staff",
+                DisplayName = "Sales Staff",
+                IsActive = true,
+                CreatedAtUtc = roleCreatedAt
+            },
+
+            new Role
+            {
+                Id = 6,
+                RoleNumber = 6,
+                RoleName = "developer",
+                DisplayName = "Developer",
+                IsActive = true,
+                CreatedAtUtc = roleCreatedAt
+            },
+
+            new Role
+            {
+                Id = 7,
+                RoleNumber = 7,
+                RoleName = "support_staff",
+                DisplayName = "Support Staff",
+                IsActive = true,
+                CreatedAtUtc = roleCreatedAt
+            },
+
+            new Role
+            {
+                Id = 8,
+                RoleNumber = 8,
+                RoleName = "knowledge_trainer",
+                DisplayName = "Knowledge Trainer",
+                IsActive = true,
+                CreatedAtUtc = roleCreatedAt
+            }
+        );
 
         // ========================================================
         // MODULE
@@ -137,10 +298,11 @@ public class AppDbContext : DbContext, IAppDbContext
         //
         // Example:
         //
-        // SalesStaff
-        //     Sales       -> View/Create/Edit
-        //     Attendance  -> View/Create
-        //     Investment  -> No Access
+        // RoleNumber 5 = sales_staff
+        //
+        // Sales       -> View/Create/Edit
+        // Attendance  -> View/Create
+        // Investment  -> No Access
         //
         // ========================================================
 
@@ -148,10 +310,17 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasIndex(e => new
             {
                 e.TenantId,
-                e.Role,
+                e.RoleNumber,
                 e.ModuleId
             })
             .IsUnique();
+
+        modelBuilder.Entity<RoleModulePermission>()
+            .HasOne(e => e.Role)
+            .WithMany()
+            .HasForeignKey(e => e.RoleNumber)
+            .HasPrincipalKey(e => e.RoleNumber)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<RoleModulePermission>()
             .HasOne(e => e.Module)
@@ -350,18 +519,79 @@ public class AppDbContext : DbContext, IAppDbContext
                 _tenantService.IsSuperAdmin ||
                 e.TenantId == _tenantService.TenantId);
 
+        // ============================================================
+        // DECIMAL PRECISION
+        // ============================================================
+
+        modelBuilder.Entity<ApplicationUser>()
+            .Property(e => e.SalaryBase)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DailyWorkLog>()
+            .Property(e => e.HoursSpent)
+            .HasPrecision(10, 2);
+
+        modelBuilder.Entity<CustomerReceipt>()
+            .Property(e => e.DepositAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<CustomerReceipt>()
+            .Property(e => e.AnnualYieldPercent)
+            .HasPrecision(8, 4);
+
+        modelBuilder.Entity<AttendanceRecord>()
+            .Property(e => e.OvertimeHours)
+            .HasPrecision(10, 2);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.MinAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.MaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.MonthlyRoiPercent)
+            .HasPrecision(8, 4);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.AnnualYieldPercent)
+            .HasPrecision(8, 4);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.StaffIncentivePercent)
+            .HasPrecision(8, 4);
 
         // ========================================================
         // KNOWLEDGE VIDEO
         // ========================================================
 
         modelBuilder.Entity<KnowledgeVideo>()
-            .Property(e => e.KeyTakeaways)
-            .HasConversion(
-                v => string.Join("|||", v),
-                v => v.Split(
-                    new[] { "|||" },
-                    StringSplitOptions.RemoveEmptyEntries));
+    .Property(e => e.KeyTakeaways)
+    .HasConversion(
+        v => string.Join("|||", v),
+        v => v.Split("|||", StringSplitOptions.None))
+    .Metadata.SetValueComparer(
+        new ValueComparer<string[]>(
+            (a, b) =>
+                a != null &&
+                b != null &&
+                a.SequenceEqual(b),
+
+            v =>
+                v == null
+                    ? 0
+                    : v.Aggregate(
+                        0,
+                        (hash, item) =>
+                            HashCode.Combine(hash, item.GetHashCode())),
+
+            v =>
+                v == null
+                    ? Array.Empty<string>()
+                    : v.ToArray()
+        ));
 
 
         // ========================================================
@@ -369,10 +599,6 @@ public class AppDbContext : DbContext, IAppDbContext
         //
         // Keep enums as integers in SQL Server.
         // ========================================================
-
-        modelBuilder.Entity<ApplicationUser>()
-            .Property(e => e.Role)
-            .HasConversion<int>();
 
         modelBuilder.Entity<DailyWorkLog>()
             .Property(e => e.WorkType)
@@ -389,25 +615,27 @@ public class AppDbContext : DbContext, IAppDbContext
     // ============================================================
 
     public override Task<int> SaveChangesAsync(
-        CancellationToken cancellationToken = default)
+    CancellationToken cancellationToken = default)
     {
-        // --------------------------------------------------------
-        // Automatically assign TenantId to new multi-tenant data
-        // --------------------------------------------------------
+        // ========================================================
+        // TENANT SECURITY
+        // ========================================================
 
-// --------------------------------------------------------
-// TENANT SECURITY
-// --------------------------------------------------------
-
-foreach (var entry in ChangeTracker.Entries<IMultiTenantEntity>())
+        foreach (var entry in ChangeTracker.Entries<IMultiTenantEntity>())
         {
             if (entry.State == EntityState.Added)
             {
-                // SuperAdmin may create records with an explicitly
-                // selected tenant through controlled server-side APIs.
+                // ------------------------------------------------
+                // SUPER ADMIN
+                // ------------------------------------------------
+
                 if (_tenantService.IsSuperAdmin)
                 {
-                    if (entry.Entity.TenantId == Guid.Empty &&
+                    // If a server-side operation has explicitly
+                    // selected a tenant, keep that TenantId.
+                    //
+                    // Otherwise use the current tenant context.
+                    if (entry.Entity.TenantId == 0 &&
                         _tenantService.TenantId.HasValue)
                     {
                         entry.Entity.TenantId =
@@ -417,22 +645,24 @@ foreach (var entry in ChangeTracker.Entries<IMultiTenantEntity>())
                     continue;
                 }
 
-                // Normal users MUST have a tenant.
+                // ------------------------------------------------
+                // NORMAL USER
+                // ------------------------------------------------
+
                 if (!_tenantService.TenantId.HasValue)
                 {
                     throw new InvalidOperationException(
                         "Authenticated user does not have a tenant.");
                 }
 
-                // Always force the entity to the authenticated user's
-                // tenant. Never trust TenantId supplied by the client.
+                // NEVER trust TenantId from the client.
                 entry.Entity.TenantId =
                     _tenantService.TenantId.Value;
             }
 
-            // ----------------------------------------------------
-            // PREVENT CROSS-TENANT MODIFICATION
-            // ----------------------------------------------------
+            // ====================================================
+            // PREVENT CROSS-TENANT UPDATE / DELETE
+            // ====================================================
 
             if (entry.State is EntityState.Modified or EntityState.Deleted)
             {
@@ -454,10 +684,9 @@ foreach (var entry in ChangeTracker.Entries<IMultiTenantEntity>())
             }
         }
 
-
-        // --------------------------------------------------------
-        // Audit fields
-        // --------------------------------------------------------
+        // ========================================================
+        // AUDIT FIELDS
+        // ========================================================
 
         foreach (var entry in ChangeTracker.Entries<BaseEntity>())
         {
@@ -469,7 +698,7 @@ foreach (var entry in ChangeTracker.Entries<IMultiTenantEntity>())
                 if (_tenantService.UserId.HasValue)
                 {
                     entry.Entity.CreatedByUserId =
-                        _tenantService.UserId.Value.ToString();
+                        _tenantService.UserId.Value;
                 }
             }
             else if (entry.State == EntityState.Modified)

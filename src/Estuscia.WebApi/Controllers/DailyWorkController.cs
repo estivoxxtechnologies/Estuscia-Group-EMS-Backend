@@ -29,7 +29,7 @@ public class DailyWorkController : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetLogs(
-        [FromQuery] Guid? branchId,
+        [FromQuery] int? branchId,
         [FromQuery] DateOnly? date)
     {
         var currentUserId = _tenantService.UserId;
@@ -44,6 +44,10 @@ public class DailyWorkController : ControllerBase
             User.IsInRole("company_admin") ||
             User.IsInRole("super_admin");
 
+        // ============================================================
+        // NORMAL USER
+        // ============================================================
+
         if (!isPrivileged)
         {
             if (!currentUserId.HasValue)
@@ -52,11 +56,20 @@ public class DailyWorkController : ControllerBase
             query = query.Where(d =>
                 d.UserId == currentUserId.Value);
         }
+
+        // ============================================================
+        // PRIVILEGED USER
+        // ============================================================
+
         else if (branchId.HasValue)
         {
             query = query.Where(d =>
                 d.BranchId == branchId.Value);
         }
+
+        // ============================================================
+        // DATE FILTER
+        // ============================================================
 
         if (date.HasValue)
         {
@@ -92,18 +105,47 @@ public class DailyWorkController : ControllerBase
         if (user == null)
             return Unauthorized();
 
-        if (user.BranchId == Guid.Empty)
+        // ============================================================
+        // BRANCH VALIDATION
+        // ============================================================
+
+        if (!user.BranchId.HasValue || user.Branch == null)
         {
             return BadRequest(new
             {
-                message = "Your account is not assigned to a branch."
+                message =
+                    "Your account is not assigned to a branch."
             });
         }
 
+        if (!user.Branch.IsActive)
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Your assigned branch is inactive."
+            });
+        }
+
+        if (user.Branch.TenantId != user.TenantId)
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Your account has an invalid branch configuration."
+            });
+        }
+
+        // ============================================================
+        // CREATE WORK LOG
+        // ============================================================
+
         var workLog = new DailyWorkLog
         {
+            // SaveChangesAsync will enforce tenant ownership.
             TenantId = user.TenantId,
-            BranchId = user.BranchId,
+
+            BranchId = user.BranchId.Value,
 
             UserId = currentUserId,
 

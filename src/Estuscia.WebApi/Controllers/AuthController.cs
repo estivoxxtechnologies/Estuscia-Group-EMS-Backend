@@ -25,10 +25,10 @@ public class AuthController : ControllerBase
     // LOGIN
     // ============================================================
 
-[HttpPost("login")]
-[AllowAnonymous]
-public async Task<IActionResult> Login(
-    [FromBody] LoginRequestDto request)
+    [HttpPost("login")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Login(
+        [FromBody] LoginRequestDto request)
     {
         // ============================================================
         // VALIDATE REQUEST
@@ -47,22 +47,20 @@ public async Task<IActionResult> Login(
             .Trim()
             .ToLowerInvariant();
 
-
         // ============================================================
         // FIND USER
         //
-        // IgnoreQueryFilters() is required here because we don't
-        // know the tenant until we identify the user.
+        // We don't know the tenant before authentication,
+        // so IgnoreQueryFilters() is required here.
         // ============================================================
 
-        var user =
-            await _context.Users
-                .IgnoreQueryFilters()
-                .Include(u => u.Tenant)
-                .Include(u => u.Branch)
-                .FirstOrDefaultAsync(
-                    u => u.Email.ToLower() == email);
-
+        var user = await _context.Users
+            .IgnoreQueryFilters()
+            .Include(u => u.Tenant)
+            .Include(u => u.Branch)
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(
+                u => u.Email.ToLower() == email);
 
         // ============================================================
         // INVALID USER
@@ -75,7 +73,6 @@ public async Task<IActionResult> Login(
                 message = "Invalid email or password."
             });
         }
-
 
         // ============================================================
         // ACCOUNT STATUS
@@ -90,7 +87,6 @@ public async Task<IActionResult> Login(
             });
         }
 
-
         // ============================================================
         // PASSWORD VERIFICATION
         // ============================================================
@@ -104,7 +100,6 @@ public async Task<IActionResult> Login(
                 message = "Invalid email or password."
             });
         }
-
 
         // ============================================================
         // TENANT VALIDATION
@@ -127,14 +122,35 @@ public async Task<IActionResult> Login(
             });
         }
 
+        // ============================================================
+        // ROLE VALIDATION
+        // ============================================================
+
+        if (user.Role == null)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your account does not have a valid role assigned."
+            });
+        }
+
+        if (!user.Role.IsActive)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your assigned role is inactive. Please contact an administrator."
+            });
+        }
 
         // ============================================================
         // BRANCH VALIDATION
         //
-        // Every branch-scoped user must have a valid branch.
+        // Current application model requires users to have a branch.
         // ============================================================
 
-        if (user.Branch == null)
+        if (!user.BranchId.HasValue || user.Branch == null)
         {
             return Unauthorized(new
             {
@@ -153,7 +169,7 @@ public async Task<IActionResult> Login(
         }
 
         // Extra safety:
-        // Make sure the branch actually belongs to the user's tenant.
+        // Ensure branch belongs to the same tenant.
 
         if (user.Branch.TenantId != user.TenantId)
         {
@@ -163,7 +179,6 @@ public async Task<IActionResult> Login(
                     "Your account has an invalid branch configuration."
             });
         }
-
 
         // ============================================================
         // GENERATE JWT
@@ -175,94 +190,75 @@ public async Task<IActionResult> Login(
         var refreshToken =
             _jwtGenerator.GenerateRefreshToken();
 
-
-        // ============================================================
-        // ROLE
-        // ============================================================
-
-        var role =
-            user.Role switch
-            {
-                Estuscia.Domain.Enums.UserRole.SuperAdmin
-                    => "super_admin",
-
-                Estuscia.Domain.Enums.UserRole.CompanyAdmin
-                    => "company_admin",
-
-                Estuscia.Domain.Enums.UserRole.HrOps
-                    => "hr_ops",
-
-                Estuscia.Domain.Enums.UserRole.BranchManager
-                    => "branch_manager",
-
-                Estuscia.Domain.Enums.UserRole.SalesStaff
-                    => "sales_staff",
-
-                Estuscia.Domain.Enums.UserRole.Developer
-                    => "developer",
-
-                Estuscia.Domain.Enums.UserRole.SupportStaff
-                    => "support_staff",
-
-                Estuscia.Domain.Enums.UserRole.KnowledgeTrainer
-                    => "knowledge_trainer",
-
-                _ => throw new ArgumentOutOfRangeException(
-                    nameof(user.Role),
-                    user.Role,
-                    "Unsupported user role.")
-            };
-
-
         // ============================================================
         // RESPONSE
+        //
+        // Role comes directly from the database Role entity.
         // ============================================================
 
-        var response =
-            new AuthResponseDto(
-                accessToken,
-                refreshToken,
-                new UserDto(
-                    user.Id,
-                    user.Email,
-                    user.FullName,
-                    role,
-                    user.Designation ?? string.Empty,
-                    user.BranchId,
-                    user.Branch.BranchName,
-                    user.TenantId,
-                    user.Tenant.Name,
-                    user.AvatarUrl ?? string.Empty
-                )
-            );
+        var response = new AuthResponseDto(
+            accessToken,
+            refreshToken,
+            new UserDto(
+                user.Id,
+                user.Email,
+                user.FullName,
+                user.Role.RoleName,
+                user.Designation,
+                user.BranchId.Value,
+                user.Branch.BranchName,
+                user.TenantId,
+                user.Tenant.Name,
+                user.AvatarUrl
+            )
+        );
 
         return Ok(response);
     }
 
-    
-    [HttpGet("me")]
-    [Authorize]
-    public async Task<IActionResult> Me()
+    // ============================================================
+    // CURRENT USER
+    // ============================================================
+
+[HttpGet("me")]
+[Authorize]
+public async Task<IActionResult> Me()
     {
+        // ============================================================
+        // USER ID FROM JWT
+        // ============================================================
+
         var userIdClaim =
-            User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+            User.FindFirst(
+                System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst(
+                System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
             ?? User.FindFirst("user_id")?.Value;
 
-        if (!Guid.TryParse(userIdClaim, out var userId))
+        // Current IDs are INT, not GUID.
+        if (!int.TryParse(userIdClaim, out var userId))
         {
             return Unauthorized();
         }
 
+        // ============================================================
+        // LOAD USER + REQUIRED RELATIONSHIPS
+        // ============================================================
+
         var user = await _context.Users
-    .Include(u => u.Tenant)
-    .Include(u => u.Branch)
-    .FirstOrDefaultAsync(u => u.Id == userId);
+            .Include(u => u.Tenant)
+            .Include(u => u.Branch)
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
         {
             return Unauthorized();
         }
+
+        // ============================================================
+        // ACCOUNT STATUS
+        // ============================================================
 
         if (!user.IsActive)
         {
@@ -272,11 +268,16 @@ public async Task<IActionResult> Login(
             });
         }
 
+        // ============================================================
+        // TENANT
+        // ============================================================
+
         if (user.Tenant == null)
         {
             return Unauthorized(new
             {
-                message = "Your account is not associated with an organization."
+                message =
+                    "Your account is not associated with an organization."
             });
         }
 
@@ -288,51 +289,73 @@ public async Task<IActionResult> Login(
             });
         }
 
-        var role =
-            user.Role switch
+        // ============================================================
+        // ROLE
+        // ============================================================
+
+        if (user.Role == null || !user.Role.IsActive)
+        {
+            return Unauthorized(new
             {
-                Estuscia.Domain.Enums.UserRole.SuperAdmin
-                    => "super_admin",
+                message =
+                    "Your account does not have a valid active role."
+            });
+        }
 
-                Estuscia.Domain.Enums.UserRole.CompanyAdmin
-                    => "company_admin",
+        // ============================================================
+        // BRANCH
+        // ============================================================
 
-                Estuscia.Domain.Enums.UserRole.HrOps
-                    => "hr_ops",
+        if (!user.BranchId.HasValue || user.Branch == null)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your account is not associated with a valid branch."
+            });
+        }
 
-                Estuscia.Domain.Enums.UserRole.BranchManager
-                    => "branch_manager",
+        if (!user.Branch.IsActive)
+        {
+            return Unauthorized(new
+            {
+                message = "Your branch is inactive."
+            });
+        }
 
-                Estuscia.Domain.Enums.UserRole.SalesStaff
-                    => "sales_staff",
+        // Make sure the user's branch belongs to the same tenant.
+        if (user.Branch.TenantId != user.TenantId)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your account has an invalid branch configuration."
+            });
+        }
 
-                Estuscia.Domain.Enums.UserRole.Developer
-                    => "developer",
+        // ============================================================
+        // RESPONSE
+        // ============================================================
 
-                Estuscia.Domain.Enums.UserRole.SupportStaff
-                    => "support_staff",
+        var response = new
+        {
+            userId = user.Id,
+            username = user.FullName,
+            email = user.Email,
 
-                Estuscia.Domain.Enums.UserRole.KnowledgeTrainer
-                    => "knowledge_trainer",
+            roleId = user.RoleNumber,
+            roleName = user.Role.RoleName,
 
-                _ => throw new ArgumentOutOfRangeException(
-                    nameof(user.Role),
-                    user.Role,
-                    "Unsupported user role.")
-            };
+            designation = user.Designation,
 
-        var response = new UserDto(
-    user.Id,
-    user.Email,
-    user.FullName,
-    role,
-    user.Designation ?? string.Empty,
-    user.BranchId,
-    user.Branch.BranchName,
-    user.TenantId,
-    user.Tenant.Name,
-    user.AvatarUrl ?? string.Empty
-);
+            tenantId = user.TenantId,
+            tenantName = user.Tenant.Name,
+
+            branchId = user.BranchId,
+            branchName = user.Branch.BranchName,
+
+            avatarUrl = user.AvatarUrl
+        };
 
         return Ok(response);
     }

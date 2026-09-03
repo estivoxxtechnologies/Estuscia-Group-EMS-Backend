@@ -22,14 +22,14 @@ public record AuthResponseDto(
 // ============================================================
 
 public record UserDto(
-    Guid Id,
+    int Id,
     string Email,
     string Name,
     string Role,
     string Designation,
-    Guid BranchId,
+    int BranchId,
     string Branch,
-    Guid TenantId,
+    int TenantId,
     string TenantName,
     string Avatar
 );
@@ -87,13 +87,13 @@ public record CreateTenantDto(
 // ============================================================
 
 public record CreateUserDto(
-    Guid TenantId,
-    Guid BranchId,
+    int TenantId,
+    int BranchId,
     string FullName,
     string Email,
     string Password,
     string EmployeeCode,
-    UserRole Role,
+    int RoleNumber,
     string Designation,
     string Department,
     decimal SalaryBase,
@@ -105,11 +105,11 @@ public record CreateUserDto(
 // ============================================================
 
 public record UpdateUserDto(
-    string BranchName,
+    int BranchId,
     string FullName,
     string Email,
     string EmployeeCode,
-    UserRole Role,
+    int RoleNumber,
     string Designation,
     string Department,
     decimal SalaryBase,

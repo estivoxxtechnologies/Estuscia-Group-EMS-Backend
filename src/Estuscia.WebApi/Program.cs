@@ -10,9 +10,6 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-Console.WriteLine(
-    BCrypt.Net.BCrypt.HashPassword("a"));
-
 // ============================================================
 // DATABASE
 // ============================================================

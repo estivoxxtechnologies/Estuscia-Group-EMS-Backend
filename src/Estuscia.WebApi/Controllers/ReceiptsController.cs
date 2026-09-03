@@ -29,12 +29,16 @@ public class ReceiptsController : ControllerBase
 
     [HttpGet]
     public async Task<IActionResult> GetReceipts(
-        [FromQuery] Guid? branchId)
+        [FromQuery] int? branchId)
     {
         var query = _context.CustomerReceipts
             .Include(r => r.IssuedByStaff)
             .Include(r => r.Branch)
             .AsNoTracking();
+
+        // ============================================================
+        // OPTIONAL BRANCH FILTER
+        // ============================================================
 
         if (branchId.HasValue)
         {
@@ -69,21 +73,53 @@ public class ReceiptsController : ControllerBase
         if (user == null)
             return Unauthorized();
 
-        if (user.BranchId == Guid.Empty)
+        // ============================================================
+        // BRANCH VALIDATION
+        // ============================================================
+
+        if (!user.BranchId.HasValue || user.Branch == null)
         {
             return BadRequest(new
             {
-                message = "Your account is not assigned to a branch."
+                message =
+                    "Your account is not assigned to a branch."
             });
         }
+
+        if (!user.Branch.IsActive)
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Your assigned branch is inactive."
+            });
+        }
+
+        if (user.Branch.TenantId != user.TenantId)
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Your account has an invalid branch configuration."
+            });
+        }
+
+        // ============================================================
+        // RECEIPT NUMBER
+        // ============================================================
 
         var receiptNumber =
             $"RCP-{DateTime.UtcNow.Year}-{Random.Shared.Next(1000, 9999)}";
 
+        // ============================================================
+        // CREATE RECEIPT
+        // ============================================================
+
         var receipt = new CustomerReceipt
         {
             TenantId = user.TenantId,
-            BranchId = user.BranchId,
+
+            BranchId = user.BranchId.Value,
 
             ReceiptNumber = receiptNumber,
 
@@ -106,7 +142,7 @@ public class ReceiptsController : ControllerBase
             Status = "Confirmed",
 
             DigitalSecurityHash =
-                Guid.NewGuid().ToString("N").ToUpper()
+                Guid.NewGuid().ToString("N").ToUpperInvariant()
         };
 
         _context.CustomerReceipts.Add(receipt);

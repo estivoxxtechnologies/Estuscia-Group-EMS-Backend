@@ -5,11 +5,13 @@ namespace Estuscia.Domain.Entities;
 
 public class RoleModulePermission : BaseEntity, IMultiTenantEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
 
-    public UserRole Role { get; set; }
+    public int RoleNumber { get; set; }
 
-    public Guid ModuleId { get; set; }
+    public Role Role { get; set; } = null!;
+
+    public int ModuleId { get; set; }
     public Module Module { get; set; } = null!;
 
     public bool CanView { get; set; }

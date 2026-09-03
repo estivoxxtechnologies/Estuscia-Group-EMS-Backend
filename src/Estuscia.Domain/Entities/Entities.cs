@@ -15,9 +15,23 @@ public class Tenant : BaseEntity
     public List<ApplicationUser> Users { get; set; } = new();
 }
 
+public class Role : BaseEntity
+{
+    public int RoleNumber { get; set; }
+
+    public string RoleName { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public bool IsActive { get; set; } = true;
+
+    public ICollection<ApplicationUser> Users { get; set; }
+        = new List<ApplicationUser>();
+}
+
 public class TenantBranch : BaseEntity, IMultiTenantEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
 
     public Tenant Tenant { get; set; } = null!;
 
@@ -40,15 +54,15 @@ public class TenantBranch : BaseEntity, IMultiTenantEntity
         = new List<AttendanceRecord>();
 }
 
-public class ApplicationUser : BaseEntity, IBranchScopedEntity
+public class ApplicationUser : BaseEntity, IMultiTenantEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
+
+    public int? BranchId { get; set; }
 
     public Tenant Tenant { get; set; } = null!;
 
-    public Guid BranchId { get; set; }
-
-    public TenantBranch Branch { get; set; } = null!;
+    public TenantBranch? Branch { get; set; }
 
     public string FullName { get; set; } = string.Empty;
 
@@ -58,7 +72,9 @@ public class ApplicationUser : BaseEntity, IBranchScopedEntity
 
     public string EmployeeCode { get; set; } = string.Empty;
 
-    public UserRole Role { get; set; }
+    public int RoleNumber { get; set; }
+
+    public Role Role { get; set; } = null!;
 
     public string Designation { get; set; } = string.Empty;
 
@@ -73,13 +89,13 @@ public class ApplicationUser : BaseEntity, IBranchScopedEntity
 
 public class DailyWorkLog : BaseEntity, IBranchScopedEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
 
-    public Guid BranchId { get; set; }
+    public int BranchId { get; set; }
 
     public TenantBranch Branch { get; set; } = null!;
 
-    public Guid UserId { get; set; }
+    public int UserId { get; set; }
 
     public ApplicationUser User { get; set; } = null!;
 
@@ -109,13 +125,13 @@ public class DailyWorkLog : BaseEntity, IBranchScopedEntity
 
     public string? ManagerNotes { get; set; }
 
-    public Guid? ReviewedByManagerId { get; set; }
+    public int? ReviewedByManagerId { get; set; }
 }
 public class CustomerReceipt : BaseEntity, IBranchScopedEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
 
-    public Guid BranchId { get; set; }
+    public int BranchId { get; set; }
 
     public TenantBranch Branch { get; set; } = null!;
 
@@ -143,7 +159,7 @@ public class CustomerReceipt : BaseEntity, IBranchScopedEntity
 
     public string PayoutFrequency { get; set; } = "Monthly";
 
-    public Guid IssuedByStaffId { get; set; }
+    public int IssuedByStaffId { get; set; }
 
     public ApplicationUser IssuedByStaff { get; set; } = null!;
 
@@ -153,13 +169,13 @@ public class CustomerReceipt : BaseEntity, IBranchScopedEntity
 }
 public class AttendanceRecord : BaseEntity, IBranchScopedEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
 
-    public Guid BranchId { get; set; }
+    public int BranchId { get; set; }
 
     public TenantBranch Branch { get; set; } = null!;
 
-    public Guid UserId { get; set; }
+    public int UserId { get; set; }
 
     public ApplicationUser User { get; set; } = null!;
 
@@ -177,7 +193,7 @@ public class AttendanceRecord : BaseEntity, IBranchScopedEntity
 }
 public class InvestmentSlab : BaseEntity, IMultiTenantEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
     public string Name { get; set; } = string.Empty;
     public decimal MinAmount { get; set; }
     public decimal MaxAmount { get; set; }
@@ -189,7 +205,7 @@ public class InvestmentSlab : BaseEntity, IMultiTenantEntity
 
 public class KnowledgeVideo : BaseEntity, IMultiTenantEntity
 {
-    public Guid TenantId { get; set; }
+    public int TenantId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
     public string Instructor { get; set; } = string.Empty;
@@ -201,8 +217,8 @@ public class KnowledgeVideo : BaseEntity, IMultiTenantEntity
 
 public class AuditLog : BaseEntity, IMultiTenantEntity
 {
-    public Guid TenantId { get; set; }
-    public Guid ActorId { get; set; }
+    public int TenantId { get; set; }
+    public int ActorId { get; set; }
     public string ActorName { get; set; } = string.Empty;
     public string ActorRole { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty;

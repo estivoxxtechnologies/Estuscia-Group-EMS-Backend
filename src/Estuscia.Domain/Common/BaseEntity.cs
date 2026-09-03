@@ -2,18 +2,20 @@ namespace Estuscia.Domain.Common;
 
 public interface IMultiTenantEntity
 {
-    Guid TenantId { get; set; }
+    int TenantId { get; set; }
 }
-
 public interface IBranchScopedEntity : IMultiTenantEntity
 {
-    Guid BranchId { get; set; }
+    int BranchId { get; set; }
 }
 
 public abstract class BaseEntity
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+    public int Id { get; set; }
+
+    public DateTime CreatedAtUtc { get; set; }
+
     public DateTime? UpdatedAtUtc { get; set; }
-    public string? CreatedByUserId { get; set; }
+
+    public int? CreatedByUserId { get; set; }
 }

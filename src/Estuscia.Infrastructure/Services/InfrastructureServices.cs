@@ -50,7 +50,7 @@ public class CurrentTenantService : ICurrentTenantService
     // USER ID
     // ========================================================
 
-    public Guid? UserId
+    public int? UserId
     {
         get
         {
@@ -62,7 +62,7 @@ public class CurrentTenantService : ICurrentTenantService
                 ?? User?.FindFirst("sub")?.Value
                 ?? User?.FindFirst("user_id")?.Value;
 
-            return Guid.TryParse(value, out var id)
+            return int.TryParse(value, out var id)
                 ? id
                 : null;
         }
@@ -72,7 +72,7 @@ public class CurrentTenantService : ICurrentTenantService
     // TENANT ID
     // ========================================================
 
-    public Guid? TenantId
+    public int? TenantId
     {
         get
         {
@@ -82,23 +82,34 @@ public class CurrentTenantService : ICurrentTenantService
             var value =
                 User?.FindFirst("tenant_id")?.Value;
 
-            return Guid.TryParse(value, out var tenantId)
+            return int.TryParse(value, out var tenantId)
                 ? tenantId
                 : null;
         }
     }
 
     // ========================================================
-    // BRANCH
+    // BRANCH ID
     // ========================================================
-    //
-    // Branch is read from the authenticated JWT.
-    //
-    // We deliberately DO NOT read X-Branch-Scope from the
-    // request because the client can modify request headers.
-    //
-    // "All Branches" should be represented by null in the JWT
-    // rather than a magic string.
+
+    public int? BranchId
+    {
+        get
+        {
+            if (!IsAuthenticated)
+                return null;
+
+            var value =
+                User?.FindFirst("branch_id")?.Value;
+
+            return int.TryParse(value, out var branchId)
+                ? branchId
+                : null;
+        }
+    }
+
+    // ========================================================
+    // BRANCH NAME
     // ========================================================
 
     public string? BranchName
@@ -111,10 +122,9 @@ public class CurrentTenantService : ICurrentTenantService
             var branch =
                 User?.FindFirst("branch")?.Value;
 
-            if (string.IsNullOrWhiteSpace(branch))
-                return null;
-
-            return branch;
+            return string.IsNullOrWhiteSpace(branch)
+                ? null
+                : branch;
         }
     }
 
@@ -146,25 +156,6 @@ public class JwtTokenGenerator : IJwtTokenGenerator
     public JwtTokenGenerator(IConfiguration config)
     {
         _config = config;
-    }
-    private static string GetRoleName(UserRole role)
-    {
-        return role switch
-        {
-            UserRole.SuperAdmin => "super_admin",
-            UserRole.CompanyAdmin => "company_admin",
-            UserRole.HrOps => "hr_ops",
-            UserRole.BranchManager => "branch_manager",
-            UserRole.SalesStaff => "sales_staff",
-            UserRole.Developer => "developer",
-            UserRole.SupportStaff => "support_staff",
-            UserRole.KnowledgeTrainer => "knowledge_trainer",
-
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(role),
-                role,
-                "Unsupported user role.")
-        };
     }
 
     public string GenerateToken(ApplicationUser user)
@@ -205,24 +196,23 @@ public class JwtTokenGenerator : IJwtTokenGenerator
         var claims = new List<Claim>
 {
     new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-
     new Claim("user_id", user.Id.ToString()),
-
     new Claim("nameid", user.Id.ToString()),
 
     new Claim("email", user.Email),
-
     new Claim("unique_name", user.FullName),
-
-    new Claim("role", GetRoleName(user.Role)),
+    new Claim("role_id", user.RoleNumber.ToString()),
+    new Claim("role", user.Role.RoleName),
 
     new Claim("tenant_id", user.TenantId.ToString()),
-
-    new Claim("branch_id", user.BranchId.ToString()),
-
     new Claim("designation", user.Designation ?? string.Empty)
 };
 
+        if (user.BranchId.HasValue)
+        {
+            claims.Add(
+                new Claim("branch_id", user.BranchId.Value.ToString()));
+        }
         var tokenDescriptor =
             new SecurityTokenDescriptor
             {

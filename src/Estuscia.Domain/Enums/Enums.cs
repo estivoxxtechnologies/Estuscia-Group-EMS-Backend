@@ -1,17 +1,5 @@
 namespace Estuscia.Domain.Enums;
 
-public enum UserRole
-{
-    SuperAdmin,
-    CompanyAdmin,
-    HrOps,
-    BranchManager,
-    SalesStaff,
-    Developer,
-    SupportStaff,
-    KnowledgeTrainer
-}
-
 public enum WorkLogType
 {
     Sales,
