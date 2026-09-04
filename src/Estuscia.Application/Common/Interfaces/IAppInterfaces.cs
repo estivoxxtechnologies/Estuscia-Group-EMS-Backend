@@ -13,6 +13,7 @@ public interface IAppDbContext
     DbSet<Tenant> Tenants { get; }
     DbSet<TenantBranch> TenantBranches { get; }
     DbSet<ApplicationUser> Users { get; }
+    DbSet<Role> Roles { get; }
 
     // ============================================================
     // PERMISSIONS
