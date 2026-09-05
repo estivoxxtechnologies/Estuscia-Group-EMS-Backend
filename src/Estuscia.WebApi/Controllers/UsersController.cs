@@ -36,8 +36,7 @@ public class UsersController : ControllerBase
         var users = await _context.Users
             .AsNoTracking()
             .Where(u =>
-                u.TenantId == tenantId &&
-                u.IsActive)
+                u.TenantId == tenantId)
             .Include(u => u.Tenant)
             .Include(u => u.Branch)
             .Include(u => u.Role)
