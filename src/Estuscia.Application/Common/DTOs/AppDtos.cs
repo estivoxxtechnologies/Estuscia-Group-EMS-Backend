@@ -70,54 +70,6 @@ public record IssueReceiptDto(
 );
 
 // ============================================================
-// TENANT / COMPANY ONBOARDING
-// ============================================================
-
-public record CreateTenantDto(
-    string Name,
-    string Code,
-    string Domain,
-    string Plan,
-    string Currency,
-    List<string> Branches
-);
-
-// ============================================================
-// EMPLOYEE CREATION / ONBOARDING
-// ============================================================
-
-public record CreateUserDto(
-    int TenantId,
-    int BranchId,
-    string FullName,
-    string Email,
-    string Password,
-    string EmployeeCode,
-    int RoleNumber,
-    string Designation,
-    string Department,
-    decimal SalaryBase,
-    string? AvatarUrl
-);
-
-// ============================================================
-// UPDATE EMPLOYEE
-// ============================================================
-
-public record UpdateUserDto(
-    int BranchId,
-    string FullName,
-    string Email,
-    string EmployeeCode,
-    int RoleNumber,
-    string Designation,
-    string Department,
-    decimal SalaryBase,
-    string? AvatarUrl,
-    bool IsActive
-);
-
-// ============================================================
 // CHANGE PASSWORD
 // ============================================================
 

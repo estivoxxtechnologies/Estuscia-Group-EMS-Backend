@@ -29,7 +29,8 @@ public class RolesController : ControllerBase
             {
                 roleNumber = r.RoleNumber,
                 roleName = r.RoleName,
-                isActive = r.IsActive
+                isActive = r.IsActive,
+                displayName = r.DisplayName,
             })
             .ToListAsync(cancellationToken);
 
