@@ -1,0 +1,8 @@
+﻿namespace Estuscia.Application.Branches.DTOs;
+
+public class CreateBranchDto
+{
+    public string BranchName { get; set; } = string.Empty;
+
+    public string? City { get; set; }
+}

@@ -1,5 +1,6 @@
 ﻿using Estuscia.Application.Branches.DTOs;
 using Estuscia.Application.Common.Interfaces;
+using Estuscia.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +9,6 @@ namespace Estuscia.WebApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
 public class BranchesController : ControllerBase
 {
     private readonly IAppDbContext _dbContext;
@@ -17,6 +17,7 @@ public class BranchesController : ControllerBase
     {
         _dbContext = dbContext;
     }
+
 
     [HttpGet]
     public async Task<ActionResult<List<BranchDto>>> GetBranches(
@@ -49,5 +50,231 @@ public class BranchesController : ControllerBase
             .ToListAsync(cancellationToken);
 
         return Ok(branches);
+    }
+    // =========================================================
+    // GET BRANCHES FOR SELECTED TENANT
+    // =========================================================
+
+    [HttpGet("tenant/{tenantId:int}")]
+    public async Task<ActionResult<List<BranchDto>>> GetBranchesByTenant(
+        int tenantId,
+        CancellationToken cancellationToken)
+    {
+        var tenantExists = await _dbContext.Tenants
+            .AsNoTracking()
+            .AnyAsync(
+                t => t.Id == tenantId,
+                cancellationToken);
+
+        if (!tenantExists)
+        {
+            return NotFound(new
+            {
+                message = "Tenant not found."
+            });
+        }
+
+        var branches = await _dbContext.TenantBranches
+            .AsNoTracking()
+            .Where(b => b.TenantId == tenantId)
+            .OrderBy(b => b.BranchName)
+            .Select(b => new BranchDto
+            {
+                Id = b.Id,
+                TenantId = b.TenantId,
+                BranchName = b.BranchName,
+                City = b.City,
+                IsActive = b.IsActive
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(branches);
+    }
+
+    // =========================================================
+    // CREATE BRANCH FOR TENANT
+    // =========================================================
+
+    [HttpPost("tenant/{tenantId:int}")]
+    public async Task<ActionResult<BranchDto>> CreateBranch(
+        int tenantId,
+        [FromBody] CreateBranchDto dto,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(dto.BranchName))
+        {
+            return BadRequest(new
+            {
+                message = "Branch name is required."
+            });
+        }
+
+        var tenantExists = await _dbContext.Tenants
+            .AsNoTracking()
+            .AnyAsync(
+                t => t.Id == tenantId,
+                cancellationToken);
+
+        if (!tenantExists)
+        {
+            return NotFound(new
+            {
+                message = "Tenant not found."
+            });
+        }
+
+        var branchName = dto.BranchName.Trim();
+
+        var duplicateExists =
+            await _dbContext.TenantBranches.AnyAsync(
+                b =>
+                    b.TenantId == tenantId &&
+                    b.BranchName == branchName,
+                cancellationToken);
+
+        if (duplicateExists)
+        {
+            return Conflict(new
+            {
+                message =
+                    "A branch with this name already exists for this tenant."
+            });
+        }
+
+        var branch = new TenantBranch
+        {
+            TenantId = tenantId,
+            BranchName = branchName,
+            City = string.IsNullOrWhiteSpace(dto.City)
+                ? null
+                : dto.City.Trim(),
+            IsActive = true
+        };
+
+        _dbContext.TenantBranches.Add(branch);
+
+        await _dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return Ok(new BranchDto
+        {
+            Id = branch.Id,
+            TenantId = branch.TenantId,
+            BranchName = branch.BranchName,
+            City = branch.City,
+            IsActive = branch.IsActive
+        });
+    }
+
+    // =========================================================
+    // UPDATE BRANCH
+    // =========================================================
+
+    [HttpPut("{branchId:int}")]
+    public async Task<ActionResult<BranchDto>> UpdateBranch(
+        int branchId,
+        [FromBody] UpdateBranchDto dto,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(dto.BranchName))
+        {
+            return BadRequest(new
+            {
+                message = "Branch name is required."
+            });
+        }
+
+        var branch =
+            await _dbContext.TenantBranches
+                .FirstOrDefaultAsync(
+                    b => b.Id == branchId,
+                    cancellationToken);
+
+        if (branch == null)
+        {
+            return NotFound(new
+            {
+                message = "Branch not found."
+            });
+        }
+
+        var branchName = dto.BranchName.Trim();
+
+        var duplicateExists =
+            await _dbContext.TenantBranches.AnyAsync(
+                b =>
+                    b.TenantId == branch.TenantId &&
+                    b.Id != branchId &&
+                    b.BranchName == branchName,
+                cancellationToken);
+
+        if (duplicateExists)
+        {
+            return Conflict(new
+            {
+                message =
+                    "A branch with this name already exists for this tenant."
+            });
+        }
+
+        branch.BranchName = branchName;
+
+        branch.City =
+            string.IsNullOrWhiteSpace(dto.City)
+                ? null
+                : dto.City.Trim();
+
+        branch.IsActive = dto.IsActive;
+
+        await _dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return Ok(new BranchDto
+        {
+            Id = branch.Id,
+            TenantId = branch.TenantId,
+            BranchName = branch.BranchName,
+            City = branch.City,
+            IsActive = branch.IsActive
+        });
+    }
+
+    // =========================================================
+    // ENABLE / DISABLE BRANCH
+    // =========================================================
+
+    [HttpPatch("{branchId:int}/status")]
+    public async Task<ActionResult<BranchDto>> ToggleBranchStatus(
+        int branchId,
+        [FromBody] bool isActive,
+        CancellationToken cancellationToken)
+    {
+        var branch =
+            await _dbContext.TenantBranches
+                .FirstOrDefaultAsync(
+                    b => b.Id == branchId,
+                    cancellationToken);
+
+        if (branch == null)
+        {
+            return NotFound(new
+            {
+                message = "Branch not found."
+            });
+        }
+
+        branch.IsActive = isActive;
+
+        await _dbContext.SaveChangesAsync(
+            cancellationToken);
+
+        return Ok(new BranchDto
+        {
+            Id = branch.Id,
+            TenantId = branch.TenantId,
+            BranchName = branch.BranchName,
+            City = branch.City,
+            IsActive = branch.IsActive
+        });
     }
 }
