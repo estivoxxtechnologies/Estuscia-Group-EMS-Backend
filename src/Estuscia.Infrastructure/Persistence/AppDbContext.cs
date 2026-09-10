@@ -1,6 +1,7 @@
 using Estuscia.Application.Common.Interfaces;
 using Estuscia.Domain.Common;
 using Estuscia.Domain.Entities;
+using Estuscia.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 
@@ -52,6 +53,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<KnowledgeVideo> KnowledgeVideos =>
         Set<KnowledgeVideo>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<TenantPayment> TenantPayments { get; set; }
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -178,6 +180,39 @@ public class AppDbContext : DbContext, IAppDbContext
 
             entity.HasIndex(e => e.RoleName)
                 .IsUnique();
+        });
+
+        //TENANT PAYMENT
+        modelBuilder.Entity<TenantPayment>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Amount)
+                .HasPrecision(18, 2);
+
+            entity.Property(x => x.PaymentMode)
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.Property(x => x.PaymentStatus)
+                .HasConversion<string>()
+                .HasMaxLength(50);
+
+            entity.Property(x => x.RegistrationStatus)
+                .IsRequired();
+
+            entity.HasOne(x => x.Tenant)
+                .WithMany()
+                .HasForeignKey(x => x.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.TenantId);
+
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.PaymentStatus
+            });
         });
 
         // ========================================================

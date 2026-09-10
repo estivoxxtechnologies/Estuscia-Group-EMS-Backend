@@ -1,6 +1,7 @@
 using Estuscia.Application.Common.DTOs.Tenant;
 using Estuscia.Application.Common.Interfaces;
 using Estuscia.Domain.Entities;
+using Estuscia.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -79,6 +80,10 @@ public class TenantsController : ControllerBase
             return Conflict("A tenant with this code already exists.");
         }
 
+        // ---------------------------------------------------------
+        // CREATE TENANT
+        // ---------------------------------------------------------
+
         var tenant = new Tenant
         {
             Name = dto.Name.Trim(),
@@ -91,7 +96,44 @@ public class TenantsController : ControllerBase
 
         _context.Tenants.Add(tenant);
 
+        // First save is required to generate Tenant.Id
         await _context.SaveChangesAsync(cancellationToken);
+
+        // ---------------------------------------------------------
+        // CREATE INITIAL PAYMENT RECORD
+        // ---------------------------------------------------------
+
+        var tenantPayment = new TenantPayment
+        {
+            TenantId = tenant.Id,
+
+            // No branches initially
+            TotalBranches = 0,
+
+            // Default payment mode
+            PaymentMode = PaymentMode.Monthly,
+
+            // Payment has not been made yet
+            Amount = 0,
+            PaymentStatus = PaymentStatus.Pending,
+
+            PaymentDateUtc = null,
+            ValidFromUtc = null,
+            ValidUntilUtc = null,
+
+            // Newly created tenant is not registered yet
+            RegistrationStatus = false,
+
+            Notes = null
+        };
+
+        _context.TenantPayments.Add(tenantPayment);
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        // ---------------------------------------------------------
+        // RETURN CREATED TENANT
+        // ---------------------------------------------------------
 
         return Ok(new
         {
@@ -173,4 +215,5 @@ public class TenantsController : ControllerBase
             createdByUserId = tenant.CreatedByUserId
         });
     }
+
 }
