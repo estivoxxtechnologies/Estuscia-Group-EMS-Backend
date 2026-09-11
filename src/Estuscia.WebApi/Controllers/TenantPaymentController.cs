@@ -2,6 +2,7 @@
 using Estuscia.Application.Common.Interfaces;
 using Estuscia.Domain.Entities;
 using Estuscia.Domain.Enums;
+using Estuscia.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,11 +14,147 @@ namespace Estuscia.WebApi.Controllers;
 [Authorize(Roles = "super_admin")]
 public class TenantPaymentsController : ControllerBase
 {
-    private readonly IAppDbContext _context;
+    private readonly AppDbContext _db;
 
-    public TenantPaymentsController(IAppDbContext context)
+    public TenantPaymentsController(AppDbContext db)
     {
-        _context = context;
+        _db = db;
+    }
+
+    // ============================================================
+    // GET CURRENT PAYMENT STATUS
+    // ============================================================
+
+    [HttpGet("current")]
+    public async Task<IActionResult> GetCurrentPayments(
+        CancellationToken cancellationToken = default)
+    {
+        //var now = DateTime.UtcNow;
+
+        var tenants = await _db.Tenants
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .Select(x => new
+            {
+                x.Id,
+                x.Name,
+                x.Code,
+                x.Domain,
+                x.Plan,
+                x.Currency,
+                x.IsActive
+            })
+            .ToListAsync(cancellationToken);
+
+        var payments = await _db.TenantPayments
+            .AsNoTracking()
+            .Include(x => x.Tenant)
+            .Where(x => x.Tenant.IsActive)
+            .OrderBy(x => x.TenantId)
+            .ThenByDescending(x => x.ValidUntilUtc)
+            .ToListAsync(cancellationToken);
+
+        var result = new List<object>();
+
+        foreach (var tenant in tenants)
+        {
+            var tenantPayments = payments
+                .Where(x => x.TenantId == tenant.Id)
+                .OrderByDescending(
+                    x => x.ValidUntilUtc ?? DateTime.MinValue)
+                .ToList();
+
+            if (tenantPayments.Count == 0)
+            {
+                result.Add(new
+                {
+                    tenantId = tenant.Id,
+                    tenantName = tenant.Name,
+                    tenantCode = tenant.Code,
+                    tenantCurrency = tenant.Currency,
+
+                    paymentId = (int?)null,
+
+                    totalBranches = 0,
+
+                    paymentMode = (PaymentMode?)null,
+
+                    amount = 0m,
+
+                    paymentStatus = PaymentStatus.Pending,
+
+                    paymentDateUtc = (DateTime?)null,
+
+                    validFromUtc = (DateTime?)null,
+
+                    validUntilUtc = (DateTime?)null,
+
+                    registrationStatus = false,
+
+                    notes = (string?)null
+                });
+
+                continue;
+            }
+
+            /*
+             * The payment with the furthest coverage is the
+             * authoritative current/future payment.
+             *
+             * This handles advance payments correctly.
+             */
+            var currentPayment = tenantPayments.First();
+
+            /*
+             * If the latest period has expired and the background
+             * worker has not yet generated the next record, we
+             * expose it as Pending.
+             *
+             * Normally the worker will already have created it.
+             */
+            var status = currentPayment.PaymentStatus;
+
+            //if (currentPayment.ValidUntilUtc.HasValue &&
+            //    currentPayment.ValidUntilUtc.Value < now &&
+            //    currentPayment.PaymentStatus == PaymentStatus.Paid)
+            //{
+            //    status = PaymentStatus.Pending;
+            //}
+
+            result.Add(new
+            {
+                tenantId = tenant.Id,
+                tenantName = tenant.Name,
+                tenantCode = tenant.Code,
+                tenantCurrency = tenant.Currency,
+
+                paymentId = currentPayment.Id,
+
+                totalBranches = currentPayment.TotalBranches,
+
+                paymentMode = currentPayment.PaymentMode,
+
+                amount = currentPayment.Amount,
+
+                paymentStatus = status,
+
+                paymentDateUtc =
+                    currentPayment.PaymentDateUtc,
+
+                validFromUtc =
+                    currentPayment.ValidFromUtc,
+
+                validUntilUtc =
+                    currentPayment.ValidUntilUtc,
+
+                registrationStatus =
+                    currentPayment.RegistrationStatus,
+
+                notes = currentPayment.Notes
+            });
+        }
+
+        return Ok(result);
     }
 
     // ============================================================
@@ -33,41 +170,35 @@ public class TenantPaymentsController : ControllerBase
         [FromQuery] int pageSize = 25,
         CancellationToken cancellationToken = default)
     {
-        if (page < 1)
-            page = 1;
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100);
 
-        if (pageSize < 1)
-            pageSize = 25;
-
-        if (pageSize > 100)
-            pageSize = 100;
-
-        var query = _context.TenantPayments
+        var query = _db.TenantPayments
             .AsNoTracking()
             .Include(x => x.Tenant)
             .AsQueryable();
 
-        // --------------------------------------------------------
-        // STATUS FILTER
-        // --------------------------------------------------------
-
         if (!string.IsNullOrWhiteSpace(status))
         {
-            if (status.Equals("Paid", StringComparison.OrdinalIgnoreCase))
+            if (status.Equals(
+                "Paid",
+                StringComparison.OrdinalIgnoreCase))
             {
-                query = query.Where(x =>
-                    x.PaymentStatus == PaymentStatus.Paid);
+                query = query.Where(
+                    x => x.PaymentStatus == PaymentStatus.Paid);
             }
-            else if (status.Equals("Unpaid", StringComparison.OrdinalIgnoreCase))
+            else if (
+                status.Equals(
+                    "Pending",
+                    StringComparison.OrdinalIgnoreCase) ||
+                status.Equals(
+                    "Unpaid",
+                    StringComparison.OrdinalIgnoreCase))
             {
-                query = query.Where(x =>
-                    x.PaymentStatus == PaymentStatus.Pending);
+                query = query.Where(
+                    x => x.PaymentStatus == PaymentStatus.Pending);
             }
         }
-
-        // --------------------------------------------------------
-        // YEAR FILTER
-        // --------------------------------------------------------
 
         if (fromYear.HasValue)
         {
@@ -81,8 +212,10 @@ public class TenantPaymentsController : ControllerBase
                 DateTimeKind.Utc);
 
             query = query.Where(x =>
-                x.PaymentDateUtc >= fromDate ||
-                x.ValidFromUtc >= fromDate);
+                (x.PaymentDateUtc.HasValue &&
+                 x.PaymentDateUtc.Value >= fromDate) ||
+                (x.ValidFromUtc.HasValue &&
+                 x.ValidFromUtc.Value >= fromDate));
         }
 
         if (toYear.HasValue)
@@ -97,22 +230,25 @@ public class TenantPaymentsController : ControllerBase
                 DateTimeKind.Utc);
 
             query = query.Where(x =>
-                x.PaymentDateUtc < toDate ||
-                x.ValidFromUtc < toDate);
+                (x.PaymentDateUtc.HasValue &&
+                 x.PaymentDateUtc.Value < toDate) ||
+                (x.ValidFromUtc.HasValue &&
+                 x.ValidFromUtc.Value < toDate));
         }
 
-        var totalCount = await query.CountAsync(
-            cancellationToken);
+        var totalCount =
+            await query.CountAsync(cancellationToken);
 
-        var payments = await query
-            .OrderByDescending(x => x.PaymentDateUtc)
-            .ThenByDescending(x => x.Id)
+        var items = await query
+            .OrderByDescending(
+                x => x.ValidUntilUtc)
+            .ThenByDescending(
+                x => x.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .Select(x => new
             {
                 id = x.Id,
-
                 tenantId = x.TenantId,
 
                 tenant = new
@@ -127,17 +263,12 @@ public class TenantPaymentsController : ControllerBase
                 },
 
                 totalBranches = x.TotalBranches,
-
                 paymentMode = x.PaymentMode,
-
                 amount = x.Amount,
-
                 paymentStatus = x.PaymentStatus,
 
                 paymentDateUtc = x.PaymentDateUtc,
-
                 validFromUtc = x.ValidFromUtc,
-
                 validUntilUtc = x.ValidUntilUtc,
 
                 registrationStatus =
@@ -146,45 +277,38 @@ public class TenantPaymentsController : ControllerBase
                 notes = x.Notes,
 
                 createdAtUtc = x.CreatedAtUtc,
-
                 updatedAtUtc = x.UpdatedAtUtc
             })
             .ToListAsync(cancellationToken);
 
         return Ok(new
         {
-            items = payments,
-
+            items,
             totalCount,
-
             page,
-
             pageSize,
-
             totalPages =
                 (int)Math.Ceiling(
-                    totalCount /
-                    (double)pageSize)
+                    totalCount / (double)pageSize)
         });
     }
 
     // ============================================================
-    // GET SINGLE PAYMENT
+    // GET PAYMENT BY ID
     // ============================================================
 
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetPayment(
         int id,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        var payment = await _context.TenantPayments
+        var payment = await _db.TenantPayments
             .AsNoTracking()
             .Include(x => x.Tenant)
             .Where(x => x.Id == id)
             .Select(x => new
             {
                 id = x.Id,
-
                 tenantId = x.TenantId,
 
                 tenant = new
@@ -199,17 +323,12 @@ public class TenantPaymentsController : ControllerBase
                 },
 
                 totalBranches = x.TotalBranches,
-
                 paymentMode = x.PaymentMode,
-
                 amount = x.Amount,
-
                 paymentStatus = x.PaymentStatus,
 
                 paymentDateUtc = x.PaymentDateUtc,
-
                 validFromUtc = x.ValidFromUtc,
-
                 validUntilUtc = x.ValidUntilUtc,
 
                 registrationStatus =
@@ -218,14 +337,19 @@ public class TenantPaymentsController : ControllerBase
                 notes = x.Notes,
 
                 createdAtUtc = x.CreatedAtUtc,
-
                 updatedAtUtc = x.UpdatedAtUtc
             })
             .FirstOrDefaultAsync(
                 cancellationToken);
 
         if (payment == null)
-            return NotFound("Payment record not found.");
+        {
+            return NotFound(
+                new
+                {
+                    message = "Payment record not found."
+                });
+        }
 
         return Ok(payment);
     }
@@ -237,25 +361,32 @@ public class TenantPaymentsController : ControllerBase
     [HttpGet("tenant/{tenantId:int}")]
     public async Task<IActionResult> GetTenantPayments(
         int tenantId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        var tenantExists = await _context.Tenants
+        var tenantExists = await _db.Tenants
             .AnyAsync(
                 x => x.Id == tenantId,
                 cancellationToken);
 
         if (!tenantExists)
-            return NotFound("Tenant not found.");
+        {
+            return NotFound(
+                new
+                {
+                    message = "Tenant not found."
+                });
+        }
 
-        var payments = await _context.TenantPayments
+        var payments = await _db.TenantPayments
             .AsNoTracking()
             .Where(x => x.TenantId == tenantId)
-            .OrderByDescending(x => x.PaymentDateUtc)
-            .ThenByDescending(x => x.Id)
+            .OrderByDescending(
+                x => x.ValidFromUtc)
+            .ThenByDescending(
+                x => x.Id)
             .Select(x => new
             {
                 id = x.Id,
-
                 tenantId = x.TenantId,
 
                 totalBranches = x.TotalBranches,
@@ -266,20 +397,25 @@ public class TenantPaymentsController : ControllerBase
 
                 paymentStatus = x.PaymentStatus,
 
-                paymentDateUtc = x.PaymentDateUtc,
+                paymentDateUtc =
+                    x.PaymentDateUtc,
 
-                validFromUtc = x.ValidFromUtc,
+                validFromUtc =
+                    x.ValidFromUtc,
 
-                validUntilUtc = x.ValidUntilUtc,
+                validUntilUtc =
+                    x.ValidUntilUtc,
 
                 registrationStatus =
                     x.RegistrationStatus,
 
                 notes = x.Notes,
 
-                createdAtUtc = x.CreatedAtUtc,
+                createdAtUtc =
+                    x.CreatedAtUtc,
 
-                updatedAtUtc = x.UpdatedAtUtc
+                updatedAtUtc =
+                    x.UpdatedAtUtc
             })
             .ToListAsync(cancellationToken);
 
@@ -292,31 +428,44 @@ public class TenantPaymentsController : ControllerBase
 
     [HttpPost]
     public async Task<IActionResult> CreatePayment(
-        [FromBody] CreateTenantPaymentDto dto,
-        CancellationToken cancellationToken)
+        CreateTenantPaymentDto dto,
+        CancellationToken cancellationToken = default)
     {
-        var tenant = await _context.Tenants
+        if (dto.TenantId <= 0)
+        {
+            return BadRequest(
+                "Tenant is required.");
+        }
+
+        var tenant = await _db.Tenants
             .FirstOrDefaultAsync(
                 x => x.Id == dto.TenantId,
                 cancellationToken);
 
         if (tenant == null)
-            return NotFound("Tenant not found.");
+        {
+            return BadRequest(
+                "Tenant not found.");
+        }
 
         if (dto.TotalBranches < 0)
+        {
             return BadRequest(
                 "Total branches cannot be negative.");
+        }
 
         if (dto.Amount < 0)
+        {
             return BadRequest(
-                "Payment amount cannot be negative.");
+                "Amount cannot be negative.");
+        }
 
         if (dto.ValidFromUtc.HasValue &&
             dto.ValidUntilUtc.HasValue &&
             dto.ValidUntilUtc.Value < dto.ValidFromUtc.Value)
         {
             return BadRequest(
-                "Valid until date cannot be earlier than valid from date.");
+                "Valid until date cannot be before valid from date.");
         }
 
         if (dto.PaymentStatus == PaymentStatus.Paid &&
@@ -326,43 +475,48 @@ public class TenantPaymentsController : ControllerBase
                 "Payment date is required when payment status is Paid.");
         }
 
+        /*
+         * Prevent duplicate billing period.
+         */
+        if (dto.ValidFromUtc.HasValue &&
+            dto.ValidUntilUtc.HasValue)
+        {
+            var duplicate = await _db.TenantPayments
+                .AnyAsync(
+                    x =>
+                        x.TenantId == dto.TenantId &&
+                        x.ValidFromUtc == dto.ValidFromUtc &&
+                        x.ValidUntilUtc == dto.ValidUntilUtc,
+                    cancellationToken);
+
+            if (duplicate)
+            {
+                return Conflict(
+                    new
+                    {
+                        message =
+                            "A payment already exists for this billing period."
+                    });
+            }
+        }
+
         var payment = new TenantPayment
         {
-            TenantId = tenant.Id,
-
-            TotalBranches =
-                dto.TotalBranches,
-
-            PaymentMode =
-                dto.PaymentMode,
-
-            Amount =
-                dto.Amount,
-
-            PaymentStatus =
-                dto.PaymentStatus,
-
-            PaymentDateUtc =
-                dto.PaymentDateUtc,
-
-            ValidFromUtc =
-                dto.ValidFromUtc,
-
-            ValidUntilUtc =
-                dto.ValidUntilUtc,
-
-            RegistrationStatus =
-                dto.RegistrationStatus,
-
-            Notes =
-                string.IsNullOrWhiteSpace(dto.Notes)
-                    ? null
-                    : dto.Notes.Trim()
+            TenantId = dto.TenantId,
+            TotalBranches = dto.TotalBranches,
+            PaymentMode = dto.PaymentMode,
+            Amount = dto.Amount,
+            PaymentStatus = dto.PaymentStatus,
+            PaymentDateUtc = dto.PaymentDateUtc,
+            ValidFromUtc = dto.ValidFromUtc,
+            ValidUntilUtc = dto.ValidUntilUtc,
+            RegistrationStatus = dto.RegistrationStatus,
+            Notes = dto.Notes
         };
 
-        _context.TenantPayments.Add(payment);
+        _db.TenantPayments.Add(payment);
 
-        await _context.SaveChangesAsync(
+        await _db.SaveChangesAsync(
             cancellationToken);
 
         return CreatedAtAction(
@@ -374,39 +528,19 @@ public class TenantPaymentsController : ControllerBase
             new
             {
                 id = payment.Id,
-
                 tenantId = payment.TenantId,
-
-                totalBranches =
-                    payment.TotalBranches,
-
-                paymentMode =
-                    payment.PaymentMode,
-
-                amount =
-                    payment.Amount,
-
-                paymentStatus =
-                    payment.PaymentStatus,
-
-                paymentDateUtc =
-                    payment.PaymentDateUtc,
-
-                validFromUtc =
-                    payment.ValidFromUtc,
-
-                validUntilUtc =
-                    payment.ValidUntilUtc,
-
+                totalBranches = payment.TotalBranches,
+                paymentMode = payment.PaymentMode,
+                amount = payment.Amount,
+                paymentStatus = payment.PaymentStatus,
+                paymentDateUtc = payment.PaymentDateUtc,
+                validFromUtc = payment.ValidFromUtc,
+                validUntilUtc = payment.ValidUntilUtc,
                 registrationStatus =
                     payment.RegistrationStatus,
-
-                notes =
-                    payment.Notes,
-
+                notes = payment.Notes,
                 createdAtUtc =
                     payment.CreatedAtUtc,
-
                 updatedAtUtc =
                     payment.UpdatedAtUtc
             });
@@ -419,31 +553,41 @@ public class TenantPaymentsController : ControllerBase
     [HttpPut("{id:int}")]
     public async Task<IActionResult> UpdatePayment(
         int id,
-        [FromBody] UpdateTenantPaymentDto dto,
-        CancellationToken cancellationToken)
+        UpdateTenantPaymentDto dto,
+        CancellationToken cancellationToken = default)
     {
-        var payment = await _context.TenantPayments
+        var payment = await _db.TenantPayments
             .FirstOrDefaultAsync(
                 x => x.Id == id,
                 cancellationToken);
 
         if (payment == null)
-            return NotFound("Payment record not found.");
+        {
+            return NotFound(
+                new
+                {
+                    message = "Payment record not found."
+                });
+        }
 
         if (dto.TotalBranches < 0)
+        {
             return BadRequest(
                 "Total branches cannot be negative.");
+        }
 
         if (dto.Amount < 0)
+        {
             return BadRequest(
-                "Payment amount cannot be negative.");
+                "Amount cannot be negative.");
+        }
 
         if (dto.ValidFromUtc.HasValue &&
             dto.ValidUntilUtc.HasValue &&
             dto.ValidUntilUtc.Value < dto.ValidFromUtc.Value)
         {
             return BadRequest(
-                "Valid until date cannot be earlier than valid from date.");
+                "Valid until date cannot be before valid from date.");
         }
 
         if (dto.PaymentStatus == PaymentStatus.Paid &&
@@ -451,6 +595,29 @@ public class TenantPaymentsController : ControllerBase
         {
             return BadRequest(
                 "Payment date is required when payment status is Paid.");
+        }
+
+        if (dto.ValidFromUtc.HasValue &&
+            dto.ValidUntilUtc.HasValue)
+        {
+            var duplicate = await _db.TenantPayments
+                .AnyAsync(
+                    x =>
+                        x.Id != id &&
+                        x.TenantId == payment.TenantId &&
+                        x.ValidFromUtc == dto.ValidFromUtc &&
+                        x.ValidUntilUtc == dto.ValidUntilUtc,
+                    cancellationToken);
+
+            if (duplicate)
+            {
+                return Conflict(
+                    new
+                    {
+                        message =
+                            "Another payment already exists for this billing period."
+                    });
+            }
         }
 
         payment.TotalBranches =
@@ -478,52 +645,12 @@ public class TenantPaymentsController : ControllerBase
             dto.RegistrationStatus;
 
         payment.Notes =
-            string.IsNullOrWhiteSpace(dto.Notes)
-                ? null
-                : dto.Notes.Trim();
+            dto.Notes;
 
-        await _context.SaveChangesAsync(
+        await _db.SaveChangesAsync(
             cancellationToken);
 
-        return Ok(new
-        {
-            id = payment.Id,
-
-            tenantId = payment.TenantId,
-
-            totalBranches =
-                payment.TotalBranches,
-
-            paymentMode =
-                payment.PaymentMode,
-
-            amount =
-                payment.Amount,
-
-            paymentStatus =
-                payment.PaymentStatus,
-
-            paymentDateUtc =
-                payment.PaymentDateUtc,
-
-            validFromUtc =
-                payment.ValidFromUtc,
-
-            validUntilUtc =
-                payment.ValidUntilUtc,
-
-            registrationStatus =
-                payment.RegistrationStatus,
-
-            notes =
-                payment.Notes,
-
-            createdAtUtc =
-                payment.CreatedAtUtc,
-
-            updatedAtUtc =
-                payment.UpdatedAtUtc
-        });
+        return Ok(payment);
     }
 
     // ============================================================
@@ -533,42 +660,39 @@ public class TenantPaymentsController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> DeletePayment(
         int id,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        var payment = await _context.TenantPayments
+        var payment = await _db.TenantPayments
             .FirstOrDefaultAsync(
                 x => x.Id == id,
                 cancellationToken);
 
         if (payment == null)
-            return NotFound("Payment record not found.");
+        {
+            return NotFound(
+                new
+                {
+                    message = "Payment record not found."
+                });
+        }
 
-        // --------------------------------------------------------
-        // NEVER ALLOW THE LAST PAYMENT TO BE DELETED
-        // --------------------------------------------------------
-
-        var paymentCount =
-            await _context.TenantPayments
+        var tenantPaymentCount =
+            await _db.TenantPayments
                 .CountAsync(
                     x => x.TenantId == payment.TenantId,
                     cancellationToken);
 
-        if (paymentCount <= 1)
+        if (tenantPaymentCount <= 1)
         {
             return BadRequest(
-                "Cannot delete the last payment record for this tenant. " +
-                "At least one payment record is required.");
+                "The last payment record for a tenant cannot be deleted.");
         }
 
-        _context.TenantPayments.Remove(payment);
+        _db.TenantPayments.Remove(payment);
 
-        await _context.SaveChangesAsync(
+        await _db.SaveChangesAsync(
             cancellationToken);
 
-        return Ok(new
-        {
-            message =
-                "Payment record deleted successfully."
-        });
+        return NoContent();
     }
 }

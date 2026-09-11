@@ -2,8 +2,7 @@
 
 namespace Estuscia.Application.Common.DTOs.TenantPayment;
 
-public record UpdateTenantPaymentDto
-(
+public record UpdateTenantPaymentDto(
     int TotalBranches,
     PaymentMode PaymentMode,
     decimal Amount,

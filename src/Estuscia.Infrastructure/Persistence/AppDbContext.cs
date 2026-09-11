@@ -201,17 +201,37 @@ public class AppDbContext : DbContext, IAppDbContext
             entity.Property(x => x.RegistrationStatus)
                 .IsRequired();
 
+            entity.Property(x => x.TotalBranches)
+                .IsRequired();
+
             entity.HasOne(x => x.Tenant)
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            /*
+             * Used when finding payment history/current coverage.
+             */
             entity.HasIndex(x => x.TenantId);
 
             entity.HasIndex(x => new
             {
                 x.TenantId,
+                x.ValidFromUtc,
+                x.ValidUntilUtc
+            })
+            .IsUnique();
+
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
                 x.PaymentStatus
+            });
+
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.ValidUntilUtc
             });
         });
 

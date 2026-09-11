@@ -2,8 +2,7 @@
 
 namespace Estuscia.Application.Common.DTOs.TenantPayment;
 
-public record CreateTenantPaymentDto
-(
+public record CreateTenantPaymentDto(
     int TenantId,
     int TotalBranches,
     PaymentMode PaymentMode,
