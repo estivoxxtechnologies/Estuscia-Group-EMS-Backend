@@ -5,4 +5,6 @@ public class CreateBranchDto
     public string BranchName { get; set; } = string.Empty;
 
     public string? City { get; set; }
+
+    public int CurrencyId { get; set; }
 }

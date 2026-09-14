@@ -6,5 +6,7 @@ public class UpdateBranchDto
 
     public string? City { get; set; }
 
+    public int CurrencyId { get; set; }
+
     public bool IsActive { get; set; }
 }

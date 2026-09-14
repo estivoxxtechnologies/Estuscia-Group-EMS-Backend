@@ -36,26 +36,22 @@ namespace Estuscia.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "InvestmentSlabs",
+                name: "Currencies",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
-                    TenantId = table.Column<int>(type: "int", nullable: false),
-                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    MinAmount = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
-                    MaxAmount = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
-                    MonthlyRoiPercent = table.Column<decimal>(type: "decimal(8,4)", precision: 8, scale: 4, nullable: false),
-                    AnnualYieldPercent = table.Column<decimal>(type: "decimal(8,4)", precision: 8, scale: 4, nullable: false),
-                    StaffIncentivePercent = table.Column<decimal>(type: "decimal(8,4)", precision: 8, scale: 4, nullable: false),
-                    Tagline = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Code = table.Column<string>(type: "nvarchar(3)", maxLength: 3, nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
+                    Symbol = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false),
+                    IsActive = table.Column<bool>(type: "bit", nullable: false),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CreatedByUserId = table.Column<int>(type: "int", nullable: true)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_InvestmentSlabs", x => x.Id);
+                    table.PrimaryKey("PK_Currencies", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -121,6 +117,36 @@ namespace Estuscia.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "InvestmentSlabs",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    TenantId = table.Column<int>(type: "int", nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    MinAmount = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
+                    MaxAmount = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
+                    MonthlyRoiPercent = table.Column<decimal>(type: "decimal(8,4)", precision: 8, scale: 4, nullable: false),
+                    AnnualYieldPercent = table.Column<decimal>(type: "decimal(8,4)", precision: 8, scale: 4, nullable: false),
+                    StaffIncentivePercent = table.Column<decimal>(type: "decimal(8,4)", precision: 8, scale: 4, nullable: false),
+                    Tagline = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    CurrencyId = table.Column<int>(type: "int", nullable: false),
+                    CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    CreatedByUserId = table.Column<int>(type: "int", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_InvestmentSlabs", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_InvestmentSlabs_Currencies_CurrencyId",
+                        column: x => x.CurrencyId,
+                        principalTable: "Currencies",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Tenants",
                 columns: table => new
                 {
@@ -130,7 +156,7 @@ namespace Estuscia.Infrastructure.Migrations
                     Code = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     Domain = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Plan = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Currency = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    DefaultCurrencyId = table.Column<int>(type: "int", nullable: false),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
@@ -139,6 +165,12 @@ namespace Estuscia.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Tenants", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Tenants_Currencies_DefaultCurrencyId",
+                        column: x => x.DefaultCurrencyId,
+                        principalTable: "Currencies",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -185,6 +217,7 @@ namespace Estuscia.Infrastructure.Migrations
                     BranchName = table.Column<string>(type: "nvarchar(450)", nullable: false),
                     City = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
+                    CurrencyId = table.Column<int>(type: "int", nullable: false),
                     CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
                     CreatedByUserId = table.Column<int>(type: "int", nullable: true)
@@ -194,11 +227,55 @@ namespace Estuscia.Infrastructure.Migrations
                     table.PrimaryKey("PK_TenantBranches", x => x.Id);
                     table.UniqueConstraint("AK_TenantBranches_TenantId_Id", x => new { x.TenantId, x.Id });
                     table.ForeignKey(
+                        name: "FK_TenantBranches_Currencies_CurrencyId",
+                        column: x => x.CurrencyId,
+                        principalTable: "Currencies",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
                         name: "FK_TenantBranches_Tenants_TenantId",
                         column: x => x.TenantId,
                         principalTable: "Tenants",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TenantPayments",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    TenantId = table.Column<int>(type: "int", nullable: false),
+                    TotalBranches = table.Column<int>(type: "int", nullable: false),
+                    PaymentMode = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
+                    CurrencyId = table.Column<int>(type: "int", nullable: false),
+                    Amount = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
+                    PaymentStatus = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
+                    PaymentDateUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    ValidFromUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    ValidUntilUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    RegistrationStatus = table.Column<bool>(type: "bit", nullable: false),
+                    Notes = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    CreatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    UpdatedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    CreatedByUserId = table.Column<int>(type: "int", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TenantPayments", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_TenantPayments_Currencies_CurrencyId",
+                        column: x => x.CurrencyId,
+                        principalTable: "Currencies",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_TenantPayments_Tenants_TenantId",
+                        column: x => x.TenantId,
+                        principalTable: "Tenants",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -307,7 +384,7 @@ namespace Estuscia.Infrastructure.Migrations
                     CustomerPhone = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     CustomerEmail = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     DepositAmount = table.Column<decimal>(type: "decimal(18,2)", precision: 18, scale: 2, nullable: false),
-                    Currency = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    CurrencyId = table.Column<int>(type: "int", nullable: false),
                     SlabTierName = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     AnnualYieldPercent = table.Column<decimal>(type: "decimal(8,4)", precision: 8, scale: 4, nullable: false),
                     LockinPeriodMonths = table.Column<int>(type: "int", nullable: false),
@@ -325,6 +402,12 @@ namespace Estuscia.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_CustomerReceipts", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_CustomerReceipts_Currencies_CurrencyId",
+                        column: x => x.CurrencyId,
+                        principalTable: "Currencies",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_CustomerReceipts_TenantBranches_TenantBranchId",
                         column: x => x.TenantBranchId,
@@ -429,6 +512,19 @@ namespace Estuscia.Infrastructure.Migrations
                 });
 
             migrationBuilder.InsertData(
+                table: "Currencies",
+                columns: new[] { "Id", "Code", "CreatedAtUtc", "CreatedByUserId", "IsActive", "Name", "Symbol", "UpdatedAtUtc" },
+                values: new object[,]
+                {
+                    { 1, "USD", new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, true, "US Dollar", "$", null },
+                    { 2, "INR", new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, true, "Indian Rupee", "₹", null },
+                    { 3, "AED", new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, true, "United Arab Emirates Dirham", "د.إ", null },
+                    { 4, "EUR", new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, true, "Euro", "€", null },
+                    { 5, "GBP", new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, true, "British Pound", "£", null },
+                    { 6, "SAR", new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), null, true, "Saudi Riyal", "﷼", null }
+                });
+
+            migrationBuilder.InsertData(
                 table: "Roles",
                 columns: new[] { "Id", "CreatedAtUtc", "CreatedByUserId", "DisplayName", "IsActive", "RoleName", "RoleNumber", "UpdatedAtUtc" },
                 values: new object[,]
@@ -457,6 +553,17 @@ namespace Estuscia.Infrastructure.Migrations
                 name: "IX_AttendanceRecords_UserId",
                 table: "AttendanceRecords",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Currencies_Code",
+                table: "Currencies",
+                column: "Code",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_CustomerReceipts_CurrencyId",
+                table: "CustomerReceipts",
+                column: "CurrencyId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_CustomerReceipts_IssuedByStaffId",
@@ -495,6 +602,11 @@ namespace Estuscia.Infrastructure.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_InvestmentSlabs_CurrencyId",
+                table: "InvestmentSlabs",
+                column: "CurrencyId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Modules_Code",
                 table: "Modules",
                 column: "Code",
@@ -529,16 +641,53 @@ namespace Estuscia.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_TenantBranches_CurrencyId",
+                table: "TenantBranches",
+                column: "CurrencyId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_TenantBranches_TenantId_BranchName",
                 table: "TenantBranches",
                 columns: new[] { "TenantId", "BranchName" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_TenantPayments_CurrencyId",
+                table: "TenantPayments",
+                column: "CurrencyId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TenantPayments_TenantId",
+                table: "TenantPayments",
+                column: "TenantId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TenantPayments_TenantId_PaymentStatus",
+                table: "TenantPayments",
+                columns: new[] { "TenantId", "PaymentStatus" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TenantPayments_TenantId_ValidFromUtc_ValidUntilUtc",
+                table: "TenantPayments",
+                columns: new[] { "TenantId", "ValidFromUtc", "ValidUntilUtc" },
+                unique: true,
+                filter: "[ValidFromUtc] IS NOT NULL AND [ValidUntilUtc] IS NOT NULL");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TenantPayments_TenantId_ValidUntilUtc",
+                table: "TenantPayments",
+                columns: new[] { "TenantId", "ValidUntilUtc" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Tenants_Code",
                 table: "Tenants",
                 column: "Code",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Tenants_DefaultCurrencyId",
+                table: "Tenants",
+                column: "DefaultCurrencyId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_UserModulePermissions_ModuleId",
@@ -609,6 +758,9 @@ namespace Estuscia.Infrastructure.Migrations
                 name: "RoleModulePermissions");
 
             migrationBuilder.DropTable(
+                name: "TenantPayments");
+
+            migrationBuilder.DropTable(
                 name: "UserModulePermissions");
 
             migrationBuilder.DropTable(
@@ -625,6 +777,9 @@ namespace Estuscia.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "Tenants");
+
+            migrationBuilder.DropTable(
+                name: "Currencies");
         }
     }
 }

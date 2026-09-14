@@ -9,7 +9,8 @@ public class Tenant : BaseEntity
     public string Code { get; set; } = string.Empty;
     public string Domain { get; set; } = string.Empty;
     public string Plan { get; set; } = "Enterprise Pro";
-    public string Currency { get; set; } = "USD ($)";
+    public int DefaultCurrencyId { get; set; }
+    public Currency DefaultCurrency { get; set; } = null!;
     public bool IsActive { get; set; } = true;
     public List<TenantBranch> Branches { get; set; } = new();
     public List<ApplicationUser> Users { get; set; } = new();
@@ -40,6 +41,9 @@ public class TenantBranch : BaseEntity, IMultiTenantEntity
     public string? City { get; set; }
 
     public bool IsActive { get; set; } = true;
+    public int CurrencyId { get; set; }
+
+    public Currency Currency { get; set; } = null!;
 
     public ICollection<ApplicationUser> Users { get; set; }
         = new List<ApplicationUser>();
@@ -144,8 +148,8 @@ public class CustomerReceipt : BaseEntity, IBranchScopedEntity
     public string CustomerEmail { get; set; } = string.Empty;
 
     public decimal DepositAmount { get; set; }
-
-    public string Currency { get; set; } = "USD";
+    public int CurrencyId { get; set; }
+    public Currency Currency { get; set; } = null!;
 
     public string SlabTierName { get; set; } = string.Empty;
 
@@ -201,6 +205,8 @@ public class InvestmentSlab : BaseEntity, IMultiTenantEntity
     public decimal AnnualYieldPercent { get; set; }
     public decimal StaffIncentivePercent { get; set; }
     public string Tagline { get; set; } = string.Empty;
+    public int CurrencyId { get; set; }
+    public Currency Currency { get; set; } = null!;
 }
 
 public class KnowledgeVideo : BaseEntity, IMultiTenantEntity

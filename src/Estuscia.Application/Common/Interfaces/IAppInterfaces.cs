@@ -14,6 +14,7 @@ public interface IAppDbContext
     DbSet<TenantBranch> TenantBranches { get; }
     DbSet<ApplicationUser> Users { get; }
     DbSet<Role> Roles { get; }
+    DbSet<Currency> Currencies { get; }
 
     // ============================================================
     // TENANT PAYMENT

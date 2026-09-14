@@ -12,8 +12,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Estuscia.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260911102942_AddCreatedByUserIdToTenantPayments")]
-    partial class AddCreatedByUserIdToTenantPayments
+    [Migration("20260914080837_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -213,6 +213,105 @@ namespace Estuscia.Infrastructure.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("Estuscia.Domain.Entities.Currency", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Currencies", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Code = "USD",
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            IsActive = true,
+                            Name = "US Dollar",
+                            Symbol = "$"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Code = "INR",
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            IsActive = true,
+                            Name = "Indian Rupee",
+                            Symbol = "₹"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Code = "AED",
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            IsActive = true,
+                            Name = "United Arab Emirates Dirham",
+                            Symbol = "د.إ"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Code = "EUR",
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            IsActive = true,
+                            Name = "Euro",
+                            Symbol = "€"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Code = "GBP",
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            IsActive = true,
+                            Name = "British Pound",
+                            Symbol = "£"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            Code = "SAR",
+                            CreatedAtUtc = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            IsActive = true,
+                            Name = "Saudi Riyal",
+                            Symbol = "﷼"
+                        });
+                });
+
             modelBuilder.Entity("Estuscia.Domain.Entities.CustomerReceipt", b =>
                 {
                     b.Property<int>("Id")
@@ -238,9 +337,8 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("int");
 
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                    b.Property<int>("CurrencyId")
+                        .HasColumnType("int");
 
                     b.Property<string>("CustomerEmail")
                         .IsRequired()
@@ -298,6 +396,8 @@ namespace Estuscia.Infrastructure.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CurrencyId");
 
                     b.HasIndex("IssuedByStaffId");
 
@@ -414,6 +514,9 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("int");
 
+                    b.Property<int>("CurrencyId")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("MaxAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -445,6 +548,8 @@ namespace Estuscia.Infrastructure.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CurrencyId");
 
                     b.ToTable("InvestmentSlabs");
                 });
@@ -728,9 +833,8 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("int");
 
-                    b.Property<string>("Currency")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                    b.Property<int>("DefaultCurrencyId")
+                        .HasColumnType("int");
 
                     b.Property<string>("Domain")
                         .IsRequired()
@@ -754,6 +858,8 @@ namespace Estuscia.Infrastructure.Migrations
 
                     b.HasIndex("Code")
                         .IsUnique();
+
+                    b.HasIndex("DefaultCurrencyId");
 
                     b.ToTable("Tenants");
                 });
@@ -779,6 +885,9 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("int");
 
+                    b.Property<int>("CurrencyId")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -789,6 +898,8 @@ namespace Estuscia.Infrastructure.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CurrencyId");
 
                     b.HasIndex("TenantId", "BranchName")
                         .IsUnique();
@@ -812,6 +923,9 @@ namespace Estuscia.Infrastructure.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CurrencyId")
                         .HasColumnType("int");
 
                     b.Property<string>("Notes")
@@ -849,6 +963,8 @@ namespace Estuscia.Infrastructure.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CurrencyId");
 
                     b.HasIndex("TenantId");
 
@@ -971,6 +1087,12 @@ namespace Estuscia.Infrastructure.Migrations
 
             modelBuilder.Entity("Estuscia.Domain.Entities.CustomerReceipt", b =>
                 {
+                    b.HasOne("Estuscia.Domain.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Estuscia.Domain.Entities.ApplicationUser", "IssuedByStaff")
                         .WithMany()
                         .HasForeignKey("IssuedByStaffId")
@@ -989,6 +1111,8 @@ namespace Estuscia.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Branch");
+
+                    b.Navigation("Currency");
 
                     b.Navigation("IssuedByStaff");
                 });
@@ -1017,6 +1141,17 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Estuscia.Domain.Entities.InvestmentSlab", b =>
+                {
+                    b.HasOne("Estuscia.Domain.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Currency");
+                });
+
             modelBuilder.Entity("Estuscia.Domain.Entities.RoleModulePermission", b =>
                 {
                     b.HasOne("Estuscia.Domain.Entities.Module", "Module")
@@ -1037,24 +1172,51 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Estuscia.Domain.Entities.Tenant", b =>
+                {
+                    b.HasOne("Estuscia.Domain.Entities.Currency", "DefaultCurrency")
+                        .WithMany("Tenants")
+                        .HasForeignKey("DefaultCurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DefaultCurrency");
+                });
+
             modelBuilder.Entity("Estuscia.Domain.Entities.TenantBranch", b =>
                 {
+                    b.HasOne("Estuscia.Domain.Entities.Currency", "Currency")
+                        .WithMany("Branches")
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Estuscia.Domain.Entities.Tenant", "Tenant")
                         .WithMany("Branches")
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("Currency");
+
                     b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("Estuscia.Domain.Entities.TenantPayment", b =>
                 {
+                    b.HasOne("Estuscia.Domain.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("Estuscia.Domain.Entities.Tenant", "Tenant")
                         .WithMany()
                         .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Currency");
 
                     b.Navigation("Tenant");
                 });
@@ -1076,6 +1238,13 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Navigation("Module");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Estuscia.Domain.Entities.Currency", b =>
+                {
+                    b.Navigation("Branches");
+
+                    b.Navigation("Tenants");
                 });
 
             modelBuilder.Entity("Estuscia.Domain.Entities.Role", b =>

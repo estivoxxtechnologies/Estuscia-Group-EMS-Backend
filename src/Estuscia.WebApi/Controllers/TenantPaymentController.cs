@@ -41,7 +41,10 @@ public class TenantPaymentsController : ControllerBase
                 x.Code,
                 x.Domain,
                 x.Plan,
-                x.Currency,
+                x.DefaultCurrencyId,
+                CurrencyCode = x.DefaultCurrency.Code,
+                CurrencyName = x.DefaultCurrency.Name,
+                CurrencySymbol = x.DefaultCurrency.Symbol,
                 x.IsActive
             })
             .ToListAsync(cancellationToken);
@@ -71,7 +74,9 @@ public class TenantPaymentsController : ControllerBase
                     tenantId = tenant.Id,
                     tenantName = tenant.Name,
                     tenantCode = tenant.Code,
-                    tenantCurrency = tenant.Currency,
+                    tenantCurrency = tenant.CurrencyCode,
+                    tenantCurrencyName = tenant.CurrencyName,
+                    tenantCurrencySymbol = tenant.CurrencySymbol,
 
                     paymentId = (int?)null,
 
@@ -126,7 +131,9 @@ public class TenantPaymentsController : ControllerBase
                 tenantId = tenant.Id,
                 tenantName = tenant.Name,
                 tenantCode = tenant.Code,
-                tenantCurrency = tenant.Currency,
+                tenantCurrency = tenant.CurrencyCode,
+                tenantCurrencyName = tenant.CurrencyName,
+                tenantCurrencySymbol = tenant.CurrencySymbol,
 
                 paymentId = currentPayment.Id,
 
@@ -174,9 +181,10 @@ public class TenantPaymentsController : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 100);
 
         var query = _db.TenantPayments
-            .AsNoTracking()
-            .Include(x => x.Tenant)
-            .AsQueryable();
+    .AsNoTracking()
+    .Include(x => x.Tenant)
+    .Include(x => x.Currency)
+    .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -258,7 +266,10 @@ public class TenantPaymentsController : ControllerBase
                     code = x.Tenant.Code,
                     domain = x.Tenant.Domain,
                     plan = x.Tenant.Plan,
-                    currency = x.Tenant.Currency,
+                    currencyId = x.CurrencyId,
+                    currency = x.Currency.Code,
+                    currencyName = x.Currency.Name,
+                    currencySymbol = x.Currency.Symbol,
                     isActive = x.Tenant.IsActive
                 },
 
@@ -318,7 +329,12 @@ public class TenantPaymentsController : ControllerBase
                     code = x.Tenant.Code,
                     domain = x.Tenant.Domain,
                     plan = x.Tenant.Plan,
-                    currency = x.Tenant.Currency,
+                    cdefaultCurrencyId = x.Tenant.DefaultCurrencyId,
+
+                    currencyId = x.CurrencyId,
+                    currency = x.Currency.Code,
+                    currencyName = x.Currency.Name,
+                    currencySymbol = x.Currency.Symbol,
                     isActive = x.Tenant.IsActive
                 },
 
@@ -438,9 +454,10 @@ public class TenantPaymentsController : ControllerBase
         }
 
         var tenant = await _db.Tenants
-            .FirstOrDefaultAsync(
-                x => x.Id == dto.TenantId,
-                cancellationToken);
+    .Include(x => x.DefaultCurrency)
+    .FirstOrDefaultAsync(
+        x => x.Id == dto.TenantId,
+        cancellationToken);
 
         if (tenant == null)
         {

@@ -30,6 +30,7 @@ public class TenantsController : ControllerBase
     {
         var tenants = await _context.Tenants
             .AsNoTracking()
+            .Include(t => t.DefaultCurrency)
             .OrderBy(t => t.Name)
             .Select(t => new
             {
@@ -38,7 +39,13 @@ public class TenantsController : ControllerBase
                 code = t.Code,
                 domain = t.Domain,
                 plan = t.Plan,
-                currency = t.Currency,
+
+                // Currency master information
+                defaultCurrencyId = t.DefaultCurrencyId,
+                currency = t.DefaultCurrency.Code,
+                currencyName = t.DefaultCurrency.Name,
+                currencySymbol = t.DefaultCurrency.Symbol,
+
                 isActive = t.IsActive,
                 createdAtUtc = t.CreatedAtUtc,
                 updatedAtUtc = t.UpdatedAtUtc,
@@ -81,6 +88,22 @@ public class TenantsController : ControllerBase
         }
 
         // ---------------------------------------------------------
+        // VALIDATE DEFAULT CURRENCY
+        // ---------------------------------------------------------
+
+        var currency = await _context.Currencies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                c => c.Id == dto.DefaultCurrencyId && c.IsActive,
+                cancellationToken);
+
+        if (currency == null)
+        {
+            return BadRequest(
+                "Selected default currency is invalid or inactive.");
+        }
+
+        // ---------------------------------------------------------
         // CREATE TENANT
         // ---------------------------------------------------------
 
@@ -90,7 +113,10 @@ public class TenantsController : ControllerBase
             Code = code,
             Domain = dto.Domain?.Trim() ?? string.Empty,
             Plan = dto.Plan?.Trim() ?? "Enterprise Pro",
-            Currency = dto.Currency?.Trim() ?? "INR",
+
+            // New currency architecture
+            DefaultCurrencyId = currency.Id,
+
             IsActive = true
         };
 
@@ -106,6 +132,10 @@ public class TenantsController : ControllerBase
         var tenantPayment = new TenantPayment
         {
             TenantId = tenant.Id,
+
+            // Preserve the currency associated with this
+            // tenant payment.
+            CurrencyId = currency.Id,
 
             // No branches initially
             TotalBranches = 0,
@@ -142,7 +172,12 @@ public class TenantsController : ControllerBase
             code = tenant.Code,
             domain = tenant.Domain,
             plan = tenant.Plan,
-            currency = tenant.Currency,
+
+            defaultCurrencyId = tenant.DefaultCurrencyId,
+            currency = currency.Code,
+            currencyName = currency.Name,
+            currencySymbol = currency.Symbol,
+
             isActive = tenant.IsActive,
             createdAtUtc = tenant.CreatedAtUtc,
             updatedAtUtc = tenant.UpdatedAtUtc,
@@ -192,14 +227,38 @@ public class TenantsController : ControllerBase
             return Conflict("A tenant with this code already exists.");
         }
 
+        // ---------------------------------------------------------
+        // VALIDATE DEFAULT CURRENCY
+        // ---------------------------------------------------------
+
+        var currency = await _context.Currencies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                c => c.Id == dto.DefaultCurrencyId && c.IsActive,
+                cancellationToken);
+
+        if (currency == null)
+        {
+            return BadRequest(
+                "Selected default currency is invalid or inactive.");
+        }
+
+        // ---------------------------------------------------------
+        // UPDATE TENANT
+        // ---------------------------------------------------------
+
         tenant.Name = dto.Name.Trim();
         tenant.Code = code;
         tenant.Domain = dto.Domain?.Trim() ?? string.Empty;
         tenant.Plan = dto.Plan?.Trim() ?? "Enterprise Pro";
-        tenant.Currency = dto.Currency?.Trim() ?? "INR";
+        tenant.DefaultCurrencyId = currency.Id;
         tenant.IsActive = dto.isActive;
 
         await _context.SaveChangesAsync(cancellationToken);
+
+        // ---------------------------------------------------------
+        // RETURN UPDATED TENANT
+        // ---------------------------------------------------------
 
         return Ok(new
         {
@@ -208,12 +267,16 @@ public class TenantsController : ControllerBase
             code = tenant.Code,
             domain = tenant.Domain,
             plan = tenant.Plan,
-            currency = tenant.Currency,
+
+            defaultCurrencyId = tenant.DefaultCurrencyId,
+            currency = currency.Code,
+            currencyName = currency.Name,
+            currencySymbol = currency.Symbol,
+
             isActive = tenant.IsActive,
             createdAtUtc = tenant.CreatedAtUtc,
             updatedAtUtc = tenant.UpdatedAtUtc,
             createdByUserId = tenant.CreatedByUserId
         });
     }
-
 }

@@ -28,6 +28,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<TenantBranch> TenantBranches => Set<TenantBranch>();
     public DbSet<ApplicationUser> Users => Set<ApplicationUser>();
     public DbSet<Role> Roles => Set<Role>();
+    public DbSet<Currency> Currencies => Set<Currency>();
 
     // ============================================================
     // PERMISSIONS
@@ -95,6 +96,27 @@ public class AppDbContext : DbContext, IAppDbContext
             .WithMany(e => e.Branches)
             .HasForeignKey(e => e.TenantId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Customer Receipt -> Currency
+        modelBuilder.Entity<CustomerReceipt>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .HasForeignKey(x => x.CurrencyId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Investment Slab -> Currency
+        modelBuilder.Entity<InvestmentSlab>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .HasForeignKey(x => x.CurrencyId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Tenant Payment -> Currency
+        modelBuilder.Entity<TenantPayment>()
+            .HasOne(x => x.Currency)
+            .WithMany()
+            .HasForeignKey(x => x.CurrencyId)
+            .OnDelete(DeleteBehavior.Restrict);
 
 
         // ========================================================
@@ -207,7 +229,7 @@ public class AppDbContext : DbContext, IAppDbContext
             entity.HasOne(x => x.Tenant)
                 .WithMany()
                 .HasForeignKey(x => x.TenantId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
 
             /*
              * Used when finding payment history/current coverage.
@@ -234,6 +256,123 @@ public class AppDbContext : DbContext, IAppDbContext
                 x.ValidUntilUtc
             });
         });
+
+        //====================
+        //Currency
+        //====================
+
+        modelBuilder.Entity<Currency>(entity =>
+        {
+            entity.ToTable("Currencies");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Code)
+                .HasMaxLength(3)
+                .IsRequired();
+
+            entity.Property(x => x.Name)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(x => x.Symbol)
+                .HasMaxLength(10)
+                .IsRequired();
+
+            entity.Property(x => x.IsActive)
+                .IsRequired();
+
+            entity.HasIndex(x => x.Code)
+                .IsUnique();
+        });
+
+        // ========================================================
+        // CURRENCY RELATIONSHIPS
+        // ========================================================
+
+        // Tenant -> Default Currency
+        modelBuilder.Entity<Tenant>()
+            .HasOne(x => x.DefaultCurrency)
+            .WithMany(x => x.Tenants)
+            .HasForeignKey(x => x.DefaultCurrencyId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // Branch -> Currency
+        modelBuilder.Entity<TenantBranch>()
+            .HasOne(x => x.Currency)
+            .WithMany(x => x.Branches)
+            .HasForeignKey(x => x.CurrencyId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // ========================================================
+        // STATIC CURRENCY DATA
+        // ========================================================
+
+        var currencyCreatedAt = new DateTime(
+            2026,
+            1,
+            1,
+            0,
+            0,
+            0,
+            DateTimeKind.Utc);
+
+        modelBuilder.Entity<Currency>().HasData(
+            new Currency
+            {
+                Id = 1,
+                Code = "USD",
+                Name = "US Dollar",
+                Symbol = "$",
+                IsActive = true,
+                CreatedAtUtc = currencyCreatedAt
+            },
+            new Currency
+            {
+                Id = 2,
+                Code = "INR",
+                Name = "Indian Rupee",
+                Symbol = "₹",
+                IsActive = true,
+                CreatedAtUtc = currencyCreatedAt
+            },
+            new Currency
+            {
+                Id = 3,
+                Code = "AED",
+                Name = "United Arab Emirates Dirham",
+                Symbol = "د.إ",
+                IsActive = true,
+                CreatedAtUtc = currencyCreatedAt
+            },
+            new Currency
+            {
+                Id = 4,
+                Code = "EUR",
+                Name = "Euro",
+                Symbol = "€",
+                IsActive = true,
+                CreatedAtUtc = currencyCreatedAt
+            },
+            new Currency
+            {
+                Id = 5,
+                Code = "GBP",
+                Name = "British Pound",
+                Symbol = "£",
+                IsActive = true,
+                CreatedAtUtc = currencyCreatedAt
+            },
+            new Currency
+            {
+                Id = 6,
+                Code = "SAR",
+                Name = "Saudi Riyal",
+                Symbol = "﷼",
+                IsActive = true,
+                CreatedAtUtc = currencyCreatedAt
+            }
+        );
 
         // ========================================================
         // STATIC ROLE DATA

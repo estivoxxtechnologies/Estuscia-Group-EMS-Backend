@@ -50,14 +50,17 @@ public class AuthController : ControllerBase
         // ============================================================
         // FIND USER
         //
-        // We don't know the tenant before authentication,
-        // so IgnoreQueryFilters() is required here.
+        // Currency relationships are loaded here:
+        // - Tenant.DefaultCurrency
+        // - Branch.Currency
         // ============================================================
 
         var user = await _context.Users
             .IgnoreQueryFilters()
             .Include(u => u.Tenant)
+                .ThenInclude(t => t.DefaultCurrency)
             .Include(u => u.Branch)
+                .ThenInclude(b => b.Currency)
             .Include(u => u.Role)
             .FirstOrDefaultAsync(
                 u => u.Email.ToLower() == email);
@@ -123,6 +126,19 @@ public class AuthController : ControllerBase
         }
 
         // ============================================================
+        // TENANT CURRENCY VALIDATION
+        // ============================================================
+
+        if (user.Tenant.DefaultCurrency == null)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your organization does not have a valid default currency configured."
+            });
+        }
+
+        // ============================================================
         // ROLE VALIDATION
         // ============================================================
 
@@ -168,8 +184,9 @@ public class AuthController : ControllerBase
             });
         }
 
-        // Extra safety:
-        // Ensure branch belongs to the same tenant.
+        // ============================================================
+        // BRANCH TENANT VALIDATION
+        // ============================================================
 
         if (user.Branch.TenantId != user.TenantId)
         {
@@ -177,6 +194,19 @@ public class AuthController : ControllerBase
             {
                 message =
                     "Your account has an invalid branch configuration."
+            });
+        }
+
+        // ============================================================
+        // BRANCH CURRENCY VALIDATION
+        // ============================================================
+
+        if (user.Branch.Currency == null)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your branch does not have a valid currency configured."
             });
         }
 
@@ -192,26 +222,49 @@ public class AuthController : ControllerBase
 
         // ============================================================
         // RESPONSE
-        //
-        // Role comes directly from the database Role entity.
         // ============================================================
 
-        var response = new AuthResponseDto(
+        var response = new
+        {
             accessToken,
             refreshToken,
-            new UserDto(
-                user.Id,
-                user.Email,
-                user.FullName,
-                user.Role.RoleName,
-                user.Designation,
-                user.BranchId.Value,
-                user.Branch.BranchName,
-                user.TenantId,
-                user.Tenant.Name,
-                user.AvatarUrl
-            )
-        );
+
+            user = new
+            {
+                userId = user.Id,
+                username = user.FullName,
+                email = user.Email,
+
+                roleId = user.RoleNumber,
+                roleName = user.Role.RoleName,
+
+                designation = user.Designation,
+
+                tenantId = user.TenantId,
+                tenantName = user.Tenant.Name,
+
+                branchId = user.BranchId,
+                branchName = user.Branch.BranchName,
+
+                avatarUrl = user.AvatarUrl,
+
+                tenantCurrency = new
+                {
+                    id = user.Tenant.DefaultCurrency.Id,
+                    code = user.Tenant.DefaultCurrency.Code,
+                    name = user.Tenant.DefaultCurrency.Name,
+                    symbol = user.Tenant.DefaultCurrency.Symbol
+                },
+
+                branchCurrency = new
+                {
+                    id = user.Branch.Currency.Id,
+                    code = user.Branch.Currency.Code,
+                    name = user.Branch.Currency.Name,
+                    symbol = user.Branch.Currency.Symbol
+                }
+            }
+        };
 
         return Ok(response);
     }
@@ -220,9 +273,9 @@ public class AuthController : ControllerBase
     // CURRENT USER
     // ============================================================
 
-[HttpGet("me")]
-[Authorize]
-public async Task<IActionResult> Me()
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> Me()
     {
         // ============================================================
         // USER ID FROM JWT
@@ -243,11 +296,17 @@ public async Task<IActionResult> Me()
 
         // ============================================================
         // LOAD USER + REQUIRED RELATIONSHIPS
+        //
+        // Currency relationships:
+        // - Tenant.DefaultCurrency
+        // - Branch.Currency
         // ============================================================
 
         var user = await _context.Users
             .Include(u => u.Tenant)
+                .ThenInclude(t => t.DefaultCurrency)
             .Include(u => u.Branch)
+                .ThenInclude(b => b.Currency)
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
@@ -290,6 +349,19 @@ public async Task<IActionResult> Me()
         }
 
         // ============================================================
+        // TENANT CURRENCY
+        // ============================================================
+
+        if (user.Tenant.DefaultCurrency == null)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your organization does not have a valid default currency configured."
+            });
+        }
+
+        // ============================================================
         // ROLE
         // ============================================================
 
@@ -323,13 +395,29 @@ public async Task<IActionResult> Me()
             });
         }
 
-        // Make sure the user's branch belongs to the same tenant.
+        // ============================================================
+        // BRANCH TENANT VALIDATION
+        // ============================================================
+
         if (user.Branch.TenantId != user.TenantId)
         {
             return Unauthorized(new
             {
                 message =
                     "Your account has an invalid branch configuration."
+            });
+        }
+
+        // ============================================================
+        // BRANCH CURRENCY
+        // ============================================================
+
+        if (user.Branch.Currency == null)
+        {
+            return Unauthorized(new
+            {
+                message =
+                    "Your branch does not have a valid currency configured."
             });
         }
 
@@ -354,7 +442,23 @@ public async Task<IActionResult> Me()
             branchId = user.BranchId,
             branchName = user.Branch.BranchName,
 
-            avatarUrl = user.AvatarUrl
+            avatarUrl = user.AvatarUrl,
+
+            tenantCurrency = new
+            {
+                id = user.Tenant.DefaultCurrency.Id,
+                code = user.Tenant.DefaultCurrency.Code,
+                name = user.Tenant.DefaultCurrency.Name,
+                symbol = user.Tenant.DefaultCurrency.Symbol
+            },
+
+            branchCurrency = new
+            {
+                id = user.Branch.Currency.Id,
+                code = user.Branch.Currency.Code,
+                name = user.Branch.Currency.Name,
+                symbol = user.Branch.Currency.Symbol
+            }
         };
 
         return Ok(response);

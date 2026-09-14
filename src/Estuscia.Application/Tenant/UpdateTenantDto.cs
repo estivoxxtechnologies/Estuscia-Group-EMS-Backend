@@ -5,6 +5,6 @@ public record UpdateTenantDto(
     string Code,
     string Domain,
     string Plan,
-    string Currency,
+    int DefaultCurrencyId,
     bool isActive
 );

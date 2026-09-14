@@ -1,4 +1,5 @@
 ﻿using Estuscia.Application.Branches.DTOs;
+using Estuscia.Application.Common.DTOs.Currency;
 using Estuscia.Application.Common.Interfaces;
 using Estuscia.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +10,7 @@ namespace Estuscia.WebApi.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class BranchesController : ControllerBase
 {
     private readonly IAppDbContext _dbContext;
@@ -18,6 +20,9 @@ public class BranchesController : ControllerBase
         _dbContext = dbContext;
     }
 
+    // =========================================================
+    // GET CURRENT USER BRANCHES
+    // =========================================================
 
     [HttpGet]
     public async Task<ActionResult<List<BranchDto>>> GetBranches(
@@ -29,7 +34,8 @@ public class BranchesController : ControllerBase
         {
             return Unauthorized(new
             {
-                message = "Tenant information is missing from the authenticated user."
+                message =
+                    "Tenant information is missing from the authenticated user."
             });
         }
 
@@ -45,12 +51,25 @@ public class BranchesController : ControllerBase
                 TenantId = b.TenantId,
                 BranchName = b.BranchName,
                 City = b.City,
-                IsActive = b.IsActive
+                IsActive = b.IsActive,
+
+                CurrencyId = b.CurrencyId,
+
+                Currency = b.Currency == null
+                    ? null
+                    : new CurrencyDto(
+                        b.Currency.Id,
+                        b.Currency.Code,
+                        b.Currency.Name,
+                        b.Currency.Symbol,
+                        b.Currency.IsActive
+                    )
             })
             .ToListAsync(cancellationToken);
 
         return Ok(branches);
     }
+
     // =========================================================
     // GET BRANCHES FOR SELECTED TENANT
     // =========================================================
@@ -84,7 +103,19 @@ public class BranchesController : ControllerBase
                 TenantId = b.TenantId,
                 BranchName = b.BranchName,
                 City = b.City,
-                IsActive = b.IsActive
+                IsActive = b.IsActive,
+
+                CurrencyId = b.CurrencyId,
+
+                Currency = b.Currency == null
+                    ? null
+                    : new CurrencyDto(
+                        b.Currency.Id,
+                        b.Currency.Code,
+                        b.Currency.Name,
+                        b.Currency.Symbol,
+                        b.Currency.IsActive
+                    )
             })
             .ToListAsync(cancellationToken);
 
@@ -109,19 +140,48 @@ public class BranchesController : ControllerBase
             });
         }
 
-        var tenantExists = await _dbContext.Tenants
+        // -----------------------------------------------------
+        // TENANT
+        // -----------------------------------------------------
+
+        var tenant = await _dbContext.Tenants
             .AsNoTracking()
-            .AnyAsync(
+            .FirstOrDefaultAsync(
                 t => t.Id == tenantId,
                 cancellationToken);
 
-        if (!tenantExists)
+        if (tenant == null)
         {
             return NotFound(new
             {
                 message = "Tenant not found."
             });
         }
+
+        // -----------------------------------------------------
+        // CURRENCY
+        // -----------------------------------------------------
+
+        var currency = await _dbContext.Currencies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                c =>
+                    c.Id == dto.CurrencyId &&
+                    c.IsActive,
+                cancellationToken);
+
+        if (currency == null)
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Selected currency does not exist or is inactive."
+            });
+        }
+
+        // -----------------------------------------------------
+        // DUPLICATE BRANCH
+        // -----------------------------------------------------
 
         var branchName = dto.BranchName.Trim();
 
@@ -141,14 +201,22 @@ public class BranchesController : ControllerBase
             });
         }
 
+        // -----------------------------------------------------
+        // CREATE
+        // -----------------------------------------------------
+
         var branch = new TenantBranch
         {
             TenantId = tenantId,
             BranchName = branchName,
+
             City = string.IsNullOrWhiteSpace(dto.City)
                 ? null
                 : dto.City.Trim(),
-            IsActive = true
+
+            IsActive = true,
+
+            CurrencyId = dto.CurrencyId
         };
 
         _dbContext.TenantBranches.Add(branch);
@@ -156,13 +224,27 @@ public class BranchesController : ControllerBase
         await _dbContext.SaveChangesAsync(
             cancellationToken);
 
+        // -----------------------------------------------------
+        // RETURN
+        // -----------------------------------------------------
+
         return Ok(new BranchDto
         {
             Id = branch.Id,
             TenantId = branch.TenantId,
             BranchName = branch.BranchName,
             City = branch.City,
-            IsActive = branch.IsActive
+            IsActive = branch.IsActive,
+
+            CurrencyId = currency.Id,
+
+            Currency = new CurrencyDto(
+                currency.Id,
+                currency.Code,
+                currency.Name,
+                currency.Symbol,
+                currency.IsActive
+            )
         });
     }
 
@@ -184,6 +266,10 @@ public class BranchesController : ControllerBase
             });
         }
 
+        // -----------------------------------------------------
+        // BRANCH
+        // -----------------------------------------------------
+
         var branch =
             await _dbContext.TenantBranches
                 .FirstOrDefaultAsync(
@@ -197,6 +283,31 @@ public class BranchesController : ControllerBase
                 message = "Branch not found."
             });
         }
+
+        // -----------------------------------------------------
+        // CURRENCY
+        // -----------------------------------------------------
+
+        var currency = await _dbContext.Currencies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                c =>
+                    c.Id == dto.CurrencyId &&
+                    c.IsActive,
+                cancellationToken);
+
+        if (currency == null)
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Selected currency does not exist or is inactive."
+            });
+        }
+
+        // -----------------------------------------------------
+        // DUPLICATE BRANCH
+        // -----------------------------------------------------
 
         var branchName = dto.BranchName.Trim();
 
@@ -217,6 +328,10 @@ public class BranchesController : ControllerBase
             });
         }
 
+        // -----------------------------------------------------
+        // UPDATE
+        // -----------------------------------------------------
+
         branch.BranchName = branchName;
 
         branch.City =
@@ -226,8 +341,14 @@ public class BranchesController : ControllerBase
 
         branch.IsActive = dto.IsActive;
 
+        branch.CurrencyId = dto.CurrencyId;
+
         await _dbContext.SaveChangesAsync(
             cancellationToken);
+
+        // -----------------------------------------------------
+        // RETURN
+        // -----------------------------------------------------
 
         return Ok(new BranchDto
         {
@@ -235,7 +356,17 @@ public class BranchesController : ControllerBase
             TenantId = branch.TenantId,
             BranchName = branch.BranchName,
             City = branch.City,
-            IsActive = branch.IsActive
+            IsActive = branch.IsActive,
+
+            CurrencyId = currency.Id,
+
+            Currency = new CurrencyDto(
+                currency.Id,
+                currency.Code,
+                currency.Name,
+                currency.Symbol,
+                currency.IsActive
+            )
         });
     }
 
@@ -268,13 +399,31 @@ public class BranchesController : ControllerBase
         await _dbContext.SaveChangesAsync(
             cancellationToken);
 
+        var currency = await _dbContext.Currencies
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                c => c.Id == branch.CurrencyId,
+                cancellationToken);
+
         return Ok(new BranchDto
         {
             Id = branch.Id,
             TenantId = branch.TenantId,
             BranchName = branch.BranchName,
             City = branch.City,
-            IsActive = branch.IsActive
+            IsActive = branch.IsActive,
+
+            CurrencyId = branch.CurrencyId,
+
+            Currency = currency == null
+                ? null
+                : new CurrencyDto(
+                    currency.Id,
+                    currency.Code,
+                    currency.Name,
+                    currency.Symbol,
+                    currency.IsActive
+                )
         });
     }
 }
