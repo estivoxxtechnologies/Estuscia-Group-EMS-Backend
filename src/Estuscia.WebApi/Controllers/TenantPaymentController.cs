@@ -522,6 +522,7 @@ public class TenantPaymentsController : ControllerBase
             TenantId = dto.TenantId,
             TotalBranches = dto.TotalBranches,
             PaymentMode = dto.PaymentMode,
+            CurrencyId = tenant.DefaultCurrencyId,
             Amount = dto.Amount,
             PaymentStatus = dto.PaymentStatus,
             PaymentDateUtc = dto.PaymentDateUtc,
