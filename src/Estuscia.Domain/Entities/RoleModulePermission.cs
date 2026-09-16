@@ -5,7 +5,7 @@ namespace Estuscia.Domain.Entities;
 
 public class RoleModulePermission : BaseEntity, IMultiTenantEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
 
     public int RoleNumber { get; set; }
 

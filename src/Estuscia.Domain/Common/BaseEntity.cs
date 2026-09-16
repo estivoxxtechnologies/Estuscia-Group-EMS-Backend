@@ -2,7 +2,7 @@ namespace Estuscia.Domain.Common;
 
 public interface IMultiTenantEntity
 {
-    int TenantId { get; set; }
+    int? TenantId { get; set; }
 }
 public interface IBranchScopedEntity : IMultiTenantEntity
 {

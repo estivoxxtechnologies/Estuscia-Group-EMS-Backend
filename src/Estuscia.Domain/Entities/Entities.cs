@@ -30,7 +30,7 @@ public class Role : BaseEntity
         = new List<ApplicationUser>();
 }
 
-public class TenantBranch : BaseEntity, IMultiTenantEntity
+public class TenantBranch : BaseEntity
 {
     public int TenantId { get; set; }
 
@@ -60,7 +60,7 @@ public class TenantBranch : BaseEntity, IMultiTenantEntity
 
 public class ApplicationUser : BaseEntity, IMultiTenantEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
 
     public int? BranchId { get; set; }
 
@@ -93,7 +93,7 @@ public class ApplicationUser : BaseEntity, IMultiTenantEntity
 
 public class DailyWorkLog : BaseEntity, IBranchScopedEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
 
     public int BranchId { get; set; }
 
@@ -133,7 +133,7 @@ public class DailyWorkLog : BaseEntity, IBranchScopedEntity
 }
 public class CustomerReceipt : BaseEntity, IBranchScopedEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
 
     public int BranchId { get; set; }
 
@@ -173,7 +173,7 @@ public class CustomerReceipt : BaseEntity, IBranchScopedEntity
 }
 public class AttendanceRecord : BaseEntity, IBranchScopedEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
 
     public int BranchId { get; set; }
 
@@ -197,7 +197,7 @@ public class AttendanceRecord : BaseEntity, IBranchScopedEntity
 }
 public class InvestmentSlab : BaseEntity, IMultiTenantEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
     public string Name { get; set; } = string.Empty;
     public decimal MinAmount { get; set; }
     public decimal MaxAmount { get; set; }
@@ -211,7 +211,7 @@ public class InvestmentSlab : BaseEntity, IMultiTenantEntity
 
 public class KnowledgeVideo : BaseEntity, IMultiTenantEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
     public string Instructor { get; set; } = string.Empty;
@@ -223,7 +223,7 @@ public class KnowledgeVideo : BaseEntity, IMultiTenantEntity
 
 public class AuditLog : BaseEntity, IMultiTenantEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
     public int ActorId { get; set; }
     public string ActorName { get; set; } = string.Empty;
     public string ActorRole { get; set; } = string.Empty;

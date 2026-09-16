@@ -4,7 +4,7 @@ namespace Estuscia.Domain.Entities;
 
 public class UserModuleAccess : BaseEntity, IMultiTenantEntity
 {
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
 
     public int UserId { get; set; }
     public ApplicationUser User { get; set; } = null!;

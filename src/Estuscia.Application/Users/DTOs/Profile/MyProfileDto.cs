@@ -31,7 +31,7 @@ public class MyProfileDto
     // ORGANIZATION
     // ------------------------------------------------------------
 
-    public int TenantId { get; set; }
+    public int? TenantId { get; set; }
 
     public string TenantName { get; set; } = string.Empty;
 
