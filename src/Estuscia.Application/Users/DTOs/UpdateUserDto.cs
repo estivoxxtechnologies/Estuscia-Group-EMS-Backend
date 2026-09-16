@@ -16,7 +16,7 @@ public class UpdateUserDto
 
     public decimal SalaryBase { get; set; }
 
-    public int BranchId { get; set; }
+    public int? BranchId { get; set; }
 
     public string? AvatarUrl { get; set; }
 
