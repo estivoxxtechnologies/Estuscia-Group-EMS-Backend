@@ -55,6 +55,9 @@ public class AppDbContext : DbContext, IAppDbContext
         Set<KnowledgeVideo>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<TenantPayment> TenantPayments { get; set; }
+    public DbSet<SalesLead> SalesLeads => Set<SalesLead>();
+    public DbSet<SalesLeadAssignment> SalesLeadAssignments =>
+        Set<SalesLeadAssignment>();
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -560,6 +563,7 @@ public class AppDbContext : DbContext, IAppDbContext
         // DAILY WORK LOG
         // ========================================================
 
+        // General query/index support
         modelBuilder.Entity<DailyWorkLog>()
             .HasIndex(e => new
             {
@@ -567,6 +571,17 @@ public class AppDbContext : DbContext, IAppDbContext
                 e.BranchId,
                 e.WorkDate
             });
+
+        // One daily report per user + work type + date
+        modelBuilder.Entity<DailyWorkLog>()
+            .HasIndex(e => new
+            {
+                e.TenantId,
+                e.UserId,
+                e.WorkDate,
+                e.WorkType
+            })
+            .IsUnique();
 
         modelBuilder.Entity<DailyWorkLog>()
             .HasOne(e => e.User)
@@ -588,6 +603,105 @@ public class AppDbContext : DbContext, IAppDbContext
                 e.Id
             })
             .OnDelete(DeleteBehavior.Restrict);
+
+
+        // ========================================================
+        // SALES LEADS
+        // ========================================================
+
+        modelBuilder.Entity<SalesLead>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.PhoneNumber)
+                .HasMaxLength(30)
+                .IsRequired();
+
+            entity.Property(x => x.CustomerName)
+                .HasMaxLength(200);
+
+            entity.Property(x => x.IsActive)
+                .IsRequired();
+
+            // Tenant + phone number lookup
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.PhoneNumber
+            });
+
+            entity.HasOne(x => x.Tenant)
+                .WithMany()
+                .HasForeignKey(x => x.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.Branch)
+                .WithMany()
+                .HasForeignKey(x => x.BranchId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+
+        // ========================================================
+        // SALES LEAD ASSIGNMENTS
+        // ========================================================
+
+        modelBuilder.Entity<SalesLeadAssignment>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Outcome)
+                .HasConversion<int>()
+                .IsRequired();
+
+            entity.Property(x => x.Notes)
+                .HasMaxLength(1000);
+
+            entity.Property(x => x.AssignedAtUtc)
+                .IsRequired();
+
+            // Fast lookup for employee's leads/outcomes
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.AssignedToUserId,
+                x.Outcome
+            });
+
+            // Fast branch/team/date lookup
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.BranchId,
+                x.AssignedToUserId,
+                x.AssignedAtUtc
+            });
+
+            entity.HasOne(x => x.SalesLead)
+                .WithMany(x => x.Assignments)
+                .HasForeignKey(x => x.SalesLeadId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.AssignedToUser)
+                .WithMany()
+                .HasForeignKey(x => x.AssignedToUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.AssignedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.AssignedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.Tenant)
+                .WithMany()
+                .HasForeignKey(x => x.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.Branch)
+                .WithMany()
+                .HasForeignKey(x => x.BranchId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
 
 
         // ========================================================
@@ -709,6 +823,17 @@ public class AppDbContext : DbContext, IAppDbContext
                 e.TenantId == _tenantService.TenantId);
 
         modelBuilder.Entity<AuditLog>()
+            .HasQueryFilter(e =>
+                _tenantService.IsSuperAdmin ||
+                e.TenantId == _tenantService.TenantId);
+
+        // NEW
+        modelBuilder.Entity<SalesLead>()
+            .HasQueryFilter(e =>
+                _tenantService.IsSuperAdmin ||
+                e.TenantId == _tenantService.TenantId);
+
+        modelBuilder.Entity<SalesLeadAssignment>()
             .HasQueryFilter(e =>
                 _tenantService.IsSuperAdmin ||
                 e.TenantId == _tenantService.TenantId);

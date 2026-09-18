@@ -32,6 +32,10 @@ public interface IAppDbContext
 
     DbSet<UserModulePermission> UserModulePermissions { get; }
 
+    DbSet<SalesLead> SalesLeads { get; }
+
+    DbSet<SalesLeadAssignment> SalesLeadAssignments { get; }
+
     // ============================================================
     // EMS
     // ============================================================

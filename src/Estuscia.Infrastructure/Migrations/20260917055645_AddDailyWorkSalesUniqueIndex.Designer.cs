@@ -4,6 +4,7 @@ using Estuscia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Estuscia.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917055645_AddDailyWorkSalesUniqueIndex")]
+    partial class AddDailyWorkSalesUniqueIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -820,112 +823,6 @@ namespace Estuscia.Infrastructure.Migrations
                     b.ToTable("RoleModulePermissions");
                 });
 
-            modelBuilder.Entity("Estuscia.Domain.Entities.SalesLead", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("BranchId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("CreatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("CustomerName")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("PhoneNumber")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)");
-
-                    b.Property<int?>("TenantId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("UpdatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BranchId");
-
-                    b.HasIndex("TenantId", "PhoneNumber");
-
-                    b.ToTable("SalesLeads");
-                });
-
-            modelBuilder.Entity("Estuscia.Domain.Entities.SalesLeadAssignment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("AssignedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("AssignedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("AssignedToUserId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("BranchId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("CompletedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("CreatedByUserId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<int>("Outcome")
-                        .HasColumnType("int");
-
-                    b.Property<int>("SalesLeadId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("TenantId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("UpdatedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AssignedByUserId");
-
-                    b.HasIndex("AssignedToUserId");
-
-                    b.HasIndex("BranchId");
-
-                    b.HasIndex("SalesLeadId");
-
-                    b.HasIndex("TenantId", "AssignedToUserId", "Outcome");
-
-                    b.HasIndex("TenantId", "BranchId", "AssignedToUserId", "AssignedAtUtc");
-
-                    b.ToTable("SalesLeadAssignments");
-                });
-
             modelBuilder.Entity("Estuscia.Domain.Entities.Tenant", b =>
                 {
                     b.Property<int>("Id")
@@ -1280,66 +1177,6 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Navigation("Role");
                 });
 
-            modelBuilder.Entity("Estuscia.Domain.Entities.SalesLead", b =>
-                {
-                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", "Branch")
-                        .WithMany()
-                        .HasForeignKey("BranchId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Estuscia.Domain.Entities.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("Branch");
-
-                    b.Navigation("Tenant");
-                });
-
-            modelBuilder.Entity("Estuscia.Domain.Entities.SalesLeadAssignment", b =>
-                {
-                    b.HasOne("Estuscia.Domain.Entities.ApplicationUser", "AssignedByUser")
-                        .WithMany()
-                        .HasForeignKey("AssignedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Estuscia.Domain.Entities.ApplicationUser", "AssignedToUser")
-                        .WithMany()
-                        .HasForeignKey("AssignedToUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", "Branch")
-                        .WithMany()
-                        .HasForeignKey("BranchId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Estuscia.Domain.Entities.SalesLead", "SalesLead")
-                        .WithMany("Assignments")
-                        .HasForeignKey("SalesLeadId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Estuscia.Domain.Entities.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("AssignedByUser");
-
-                    b.Navigation("AssignedToUser");
-
-                    b.Navigation("Branch");
-
-                    b.Navigation("SalesLead");
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("Estuscia.Domain.Entities.Tenant", b =>
                 {
                     b.HasOne("Estuscia.Domain.Entities.Currency", "DefaultCurrency")
@@ -1418,11 +1255,6 @@ namespace Estuscia.Infrastructure.Migrations
             modelBuilder.Entity("Estuscia.Domain.Entities.Role", b =>
                 {
                     b.Navigation("Users");
-                });
-
-            modelBuilder.Entity("Estuscia.Domain.Entities.SalesLead", b =>
-                {
-                    b.Navigation("Assignments");
                 });
 
             modelBuilder.Entity("Estuscia.Domain.Entities.Tenant", b =>
