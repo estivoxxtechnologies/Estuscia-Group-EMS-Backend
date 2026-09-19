@@ -35,6 +35,7 @@ public interface IAppDbContext
     DbSet<SalesLead> SalesLeads { get; }
 
     DbSet<SalesLeadAssignment> SalesLeadAssignments { get; }
+    DbSet<DeveloperWork> DeveloperWorks { get; }
 
     // ============================================================
     // EMS

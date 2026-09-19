@@ -58,7 +58,8 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<SalesLead> SalesLeads => Set<SalesLead>();
     public DbSet<SalesLeadAssignment> SalesLeadAssignments =>
         Set<SalesLeadAssignment>();
-
+    public DbSet<DeveloperWork> DeveloperWorks =>
+    Set<DeveloperWork>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -702,6 +703,90 @@ public class AppDbContext : DbContext, IAppDbContext
                 .HasForeignKey(x => x.BranchId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        // ============================================================
+        // DEVELOPER WORK
+        // ============================================================
+
+        modelBuilder.Entity<DeveloperWork>()
+            .Property(x => x.Status)
+            .HasConversion<int>();
+
+        modelBuilder.Entity<DeveloperWork>()
+            .Property(x => x.Priority)
+            .HasConversion<int>();
+
+        modelBuilder.Entity<DeveloperWork>()
+            .Property(x => x.WorkType)
+            .HasConversion<int>();
+
+        // ------------------------------------------------------------
+        // Tenant relationship
+        // ------------------------------------------------------------
+
+        modelBuilder.Entity<DeveloperWork>()
+            .HasOne(x => x.Tenant)
+            .WithMany()
+            .HasForeignKey(x => x.TenantId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // ------------------------------------------------------------
+        // Branch relationship
+        // ------------------------------------------------------------
+
+        modelBuilder.Entity<DeveloperWork>()
+            .HasOne(x => x.Branch)
+            .WithMany()
+            .HasForeignKey(x => x.BranchId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // ------------------------------------------------------------
+        // Assigned To
+        // ------------------------------------------------------------
+
+        modelBuilder.Entity<DeveloperWork>()
+            .HasOne(x => x.AssignedToUser)
+            .WithMany()
+            .HasForeignKey(x => x.AssignedToUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // ------------------------------------------------------------
+        // Assigned By
+        // ------------------------------------------------------------
+
+        modelBuilder.Entity<DeveloperWork>()
+            .HasOne(x => x.AssignedByUser)
+            .WithMany()
+            .HasForeignKey(x => x.AssignedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // ------------------------------------------------------------
+        // Indexes
+        // ------------------------------------------------------------
+
+        modelBuilder.Entity<DeveloperWork>()
+            .HasIndex(x => new
+            {
+                x.TenantId,
+                x.AssignedToUserId,
+                x.Status
+            });
+
+        modelBuilder.Entity<DeveloperWork>()
+            .HasIndex(x => new
+            {
+                x.TenantId,
+                x.BranchId,
+                x.Status
+            });
+
+        modelBuilder.Entity<DeveloperWork>()
+            .HasIndex(x => new
+            {
+                x.TenantId,
+                x.AssignedToUserId,
+                x.DueDateUtc
+            });
 
 
         // ========================================================
