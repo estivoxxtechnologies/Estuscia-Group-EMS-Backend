@@ -49,6 +49,7 @@ public class AppDbContext : DbContext, IAppDbContext
         Set<CustomerReceipt>();
     public DbSet<AttendanceRecord> AttendanceRecords =>
         Set<AttendanceRecord>();
+    public DbSet<LeaveRequest> LeaveRequests => Set<LeaveRequest>();
     public DbSet<InvestmentSlab> InvestmentSlabs =>
         Set<InvestmentSlab>();
     public DbSet<KnowledgeVideo> KnowledgeVideos =>
@@ -857,6 +858,166 @@ public class AppDbContext : DbContext, IAppDbContext
                 e.Date
             });
 
+        // ========================================================
+        // LEAVE REQUEST
+        // ========================================================
+
+        modelBuilder.Entity<LeaveRequest>(entity =>
+        {
+            entity.ToTable("LeaveRequests");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .ValueGeneratedOnAdd();
+
+            // ----------------------------------------------------
+            // ENUMS
+            // ----------------------------------------------------
+
+            entity.Property(e => e.LeaveType)
+                .HasConversion<int>()
+                .IsRequired();
+
+            entity.Property(e => e.Status)
+                .HasConversion<int>()
+                .IsRequired();
+
+            // ----------------------------------------------------
+            // DATES
+            // ----------------------------------------------------
+
+            entity.Property(e => e.StartDate)
+                .HasColumnType("date")
+                .IsRequired();
+
+            entity.Property(e => e.EndDate)
+                .HasColumnType("date")
+                .IsRequired();
+
+            // ----------------------------------------------------
+            // REQUESTED DAYS
+            // ----------------------------------------------------
+
+            entity.Property(e => e.RequestedDays)
+                .HasPrecision(10, 2)
+                .IsRequired();
+
+            // ----------------------------------------------------
+            // REASON
+            // ----------------------------------------------------
+
+            entity.Property(e => e.Reason)
+                .HasMaxLength(2000)
+                .IsRequired();
+
+            // ----------------------------------------------------
+            // MEDICAL CERTIFICATE
+            // ----------------------------------------------------
+
+            entity.Property(e => e.MedicalCertificateFileUrl)
+                .HasMaxLength(1000);
+
+            entity.Property(e => e.MedicalCertificateFileName)
+                .HasMaxLength(255);
+
+            // ----------------------------------------------------
+            // HR REVIEW
+            // ----------------------------------------------------
+
+            entity.Property(e => e.ReviewReason)
+                .HasMaxLength(2000);
+
+            // ----------------------------------------------------
+            // AUDIT
+            // ----------------------------------------------------
+
+            entity.Property(e => e.CreatedAtUtc)
+                .IsRequired();
+
+            // ----------------------------------------------------
+            // TENANT
+            // ----------------------------------------------------
+
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ----------------------------------------------------
+            // BRANCH
+            //
+            // TenantId + BranchId
+            // -> TenantBranches(TenantId + Id)
+            // ----------------------------------------------------
+
+            entity.HasOne(e => e.Branch)
+                .WithMany()
+                .HasForeignKey(e => new
+                {
+                    e.TenantId,
+                    e.BranchId
+                })
+                .HasPrincipalKey(e => new
+                {
+                    e.TenantId,
+                    e.Id
+                })
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ----------------------------------------------------
+            // EMPLOYEE
+            // ----------------------------------------------------
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ----------------------------------------------------
+            // HR REVIEWED BY
+            // ----------------------------------------------------
+
+            entity.HasOne(e => e.ReviewedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ----------------------------------------------------
+            // CREATED BY
+            // ----------------------------------------------------
+
+            entity.HasOne(e => e.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // ----------------------------------------------------
+            // INDEXES
+            // ----------------------------------------------------
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.BranchId,
+                e.UserId,
+                e.StartDate,
+                e.EndDate
+            });
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.Status
+            });
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.BranchId,
+                e.Status
+            });
+        });
 
         // ========================================================
         // MULTI-TENANT QUERY FILTERS
@@ -893,6 +1054,11 @@ public class AppDbContext : DbContext, IAppDbContext
                 e.TenantId == _tenantService.TenantId);
 
         modelBuilder.Entity<AttendanceRecord>()
+            .HasQueryFilter(e =>
+                _tenantService.IsSuperAdmin ||
+                e.TenantId == _tenantService.TenantId);
+
+        modelBuilder.Entity<LeaveRequest>()
             .HasQueryFilter(e =>
                 _tenantService.IsSuperAdmin ||
                 e.TenantId == _tenantService.TenantId);

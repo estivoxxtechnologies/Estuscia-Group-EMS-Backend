@@ -44,6 +44,7 @@ public interface IAppDbContext
     DbSet<DailyWorkLog> DailyWorkLogs { get; }
     DbSet<CustomerReceipt> CustomerReceipts { get; }
     DbSet<AttendanceRecord> AttendanceRecords { get; }
+    DbSet<LeaveRequest> LeaveRequests { get; }
     DbSet<InvestmentSlab> InvestmentSlabs { get; }
     DbSet<KnowledgeVideo> KnowledgeVideos { get; }
     DbSet<AuditLog> AuditLogs { get; }
