@@ -241,7 +241,10 @@ public class AttendanceController : ControllerBase
                 StatusId = (int)x.Status,
                 Status = x.Status.ToString(),
 
-                x.OvertimeHours,
+                RequiredHours = x.Branch.StandardWorkingHours,
+
+                x.WorkedHours,
+                x.WorkingHoursBalance,
                 x.BiometricDeviceId,
 
                 x.CreatedAtUtc,
@@ -384,8 +387,10 @@ public class AttendanceController : ControllerBase
 
                 StatusId = (int)x.Status,
                 Status = x.Status.ToString(),
+                RequiredHours = x.Branch.StandardWorkingHours,
 
-                x.OvertimeHours,
+                x.WorkedHours,
+                x.WorkingHoursBalance,
                 x.BiometricDeviceId,
 
                 x.CreatedAtUtc,
@@ -504,17 +509,20 @@ public class AttendanceController : ControllerBase
         // ========================================================
         // BRANCH VALIDATION
         // ========================================================
+        var branch = await _db.TenantBranches
+    .AsNoTracking()
+    .Where(x =>
+        x.Id == branchId &&
+        x.TenantId == tenantId &&
+        x.IsActive)
+    .Select(x => new
+    {
+        x.Id,
+        x.StandardWorkingHours
+    })
+    .FirstOrDefaultAsync(cancellationToken);
 
-        var branchExists = await _db.TenantBranches
-            .AsNoTracking()
-            .AnyAsync(
-                x =>
-                    x.Id == branchId &&
-                    x.TenantId == tenantId &&
-                    x.IsActive,
-                cancellationToken);
-
-        if (!branchExists)
+        if (branch == null)
         {
             return BadRequest(
                 "User branch is invalid or inactive.");
@@ -556,7 +564,8 @@ public class AttendanceController : ControllerBase
 
             Status = status,
 
-            OvertimeHours = 0,
+            WorkedHours = 0m,
+            WorkingHoursBalance = 0m,
 
             BiometricDeviceId =
                 request.BiometricDeviceId
@@ -589,7 +598,8 @@ public class AttendanceController : ControllerBase
 
             status = attendance.Status.ToString(),
 
-            overtimeHours = attendance.OvertimeHours
+            workedHours = attendance.WorkedHours,
+            workingHoursBalance = attendance.WorkingHoursBalance
         });
     }
 
@@ -715,30 +725,77 @@ public class AttendanceController : ControllerBase
         }
 
         // ========================================================
-        // UPDATE
+        // LOAD BRANCH WORKING HOURS
+        // ========================================================
+
+        var branch = await _db.TenantBranches
+            .AsNoTracking()
+            .Where(x =>
+                x.Id == branchId &&
+                x.TenantId == tenantId &&
+                x.IsActive)
+            .Select(x => new
+            {
+                x.Id,
+                x.StandardWorkingHours
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (branch == null)
+        {
+            return BadRequest(
+                "User branch is invalid or inactive.");
+        }
+
+        // ========================================================
+        // UPDATE CHECK-OUT
         // ========================================================
 
         attendance.CheckOutTime = checkOutTime;
 
         // ========================================================
-        // OVERTIME
-        //
-        // Current standard = 8 hours.
-        // We can later make this configurable per branch/tenant.
+        // CALCULATE WORKED HOURS
         // ========================================================
 
         var workedHours =
-            (checkOutTime - attendance.CheckInTime.Value)
-            .TotalHours;
+            (decimal)(
+                checkOutTime -
+                attendance.CheckInTime.Value
+            ).TotalHours;
 
-        attendance.OvertimeHours =
-            (decimal)Math.Max(
-                0,
-                Math.Round(
-                    workedHours - 8,
-                    2));
+        attendance.WorkedHours =
+            Math.Round(
+                workedHours,
+                2,
+                MidpointRounding.AwayFromZero);
+
+        // ========================================================
+        // CALCULATE WORKING HOURS BALANCE
+        //
+        // Balance = Worked Hours - Required Hours
+        //
+        // Example:
+        // Worked = 9.00
+        // Required = 8.00
+        // Balance = +1.00
+        //
+        // Worked = 7.50
+        // Required = 8.00
+        // Balance = -0.50
+        // ========================================================
+
+        attendance.WorkingHoursBalance =
+            Math.Round(
+                (decimal)(attendance.WorkedHours -
+                branch.StandardWorkingHours),
+                2,
+                MidpointRounding.AwayFromZero);
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // ========================================================
+        // RESPONSE
+        // ========================================================
 
         return Ok(new
         {
@@ -747,17 +804,31 @@ public class AttendanceController : ControllerBase
 
             attendanceId = attendance.Id,
 
+            tenantId = attendance.TenantId,
+
+            branchId = attendance.BranchId,
+
+            userId = attendance.UserId,
+
             date = attendance.Date,
 
             checkInTime = attendance.CheckInTime,
 
             checkOutTime = attendance.CheckOutTime,
 
-            overtimeHours = attendance.OvertimeHours,
+            requiredHours = branch.StandardWorkingHours,
+
+            workedHours = attendance.WorkedHours,
+
+            workingHoursBalance =
+                attendance.WorkingHoursBalance,
 
             statusId = (int)attendance.Status,
 
-            status = attendance.Status.ToString()
+            status = attendance.Status.ToString(),
+
+            biometricDeviceId =
+                attendance.BiometricDeviceId
         });
     }
 
@@ -855,7 +926,7 @@ public class AttendanceController : ControllerBase
                 "Attendance record not found.");
 
         // ========================================================
-        // UPDATE
+        // UPDATE CHECK-IN / CHECK-OUT
         // ========================================================
 
         if (request.CheckInTime.HasValue)
@@ -869,6 +940,80 @@ public class AttendanceController : ControllerBase
             attendance.CheckOutTime =
                 request.CheckOutTime.Value;
         }
+
+        // ========================================================
+        // VALIDATE CHECK-IN / CHECK-OUT
+        // ========================================================
+
+        if (attendance.CheckInTime.HasValue &&
+            attendance.CheckOutTime.HasValue)
+        {
+            if (attendance.CheckOutTime.Value <
+                attendance.CheckInTime.Value)
+            {
+                return BadRequest(
+                    "Check-out time cannot be earlier than check-in time.");
+            }
+        }
+
+        // ========================================================
+        // LOAD BRANCH WORKING HOURS
+        // ========================================================
+
+        var branch = await _db.TenantBranches
+            .AsNoTracking()
+            .Where(x =>
+                x.Id == attendance.BranchId &&
+                x.TenantId == attendance.TenantId &&
+                x.IsActive)
+            .Select(x => new
+            {
+                x.Id,
+                x.StandardWorkingHours
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (branch == null)
+        {
+            return BadRequest(
+                "Attendance branch is invalid or inactive.");
+        }
+
+        // ========================================================
+        // RECALCULATE WORKED HOURS + BALANCE
+        // ========================================================
+
+        if (attendance.CheckInTime.HasValue &&
+            attendance.CheckOutTime.HasValue)
+        {
+            var workedHours =
+                (decimal)(
+                    attendance.CheckOutTime.Value -
+                    attendance.CheckInTime.Value
+                ).TotalHours;
+
+            attendance.WorkedHours =
+                Math.Round(
+                    workedHours,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+            attendance.WorkingHoursBalance =
+                Math.Round(
+                    (decimal)(attendance.WorkedHours -
+                    branch.StandardWorkingHours),
+                    2,
+                    MidpointRounding.AwayFromZero);
+        }
+        else
+        {
+            attendance.WorkedHours = 0m;
+            attendance.WorkingHoursBalance = 0m;
+        }
+
+        // ========================================================
+        // STATUS
+        // ========================================================
 
         if (!string.IsNullOrWhiteSpace(request.Status))
         {
@@ -884,23 +1029,19 @@ public class AttendanceController : ControllerBase
             attendance.Status = status;
         }
 
-        if (request.OvertimeHours.HasValue)
-        {
-            if (request.OvertimeHours.Value < 0)
-            {
-                return BadRequest(
-                    "Overtime hours cannot be negative.");
-            }
-
-            attendance.OvertimeHours =
-                request.OvertimeHours.Value;
-        }
+        // ========================================================
+        // BIOMETRIC DEVICE
+        // ========================================================
 
         if (request.BiometricDeviceId != null)
         {
             attendance.BiometricDeviceId =
                 request.BiometricDeviceId;
         }
+
+        // ========================================================
+        // SAVE
+        // ========================================================
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -909,7 +1050,33 @@ public class AttendanceController : ControllerBase
             message =
                 "Attendance updated successfully.",
 
-            attendanceId = attendance.Id
+            attendanceId = attendance.Id,
+
+            tenantId = attendance.TenantId,
+
+            branchId = attendance.BranchId,
+
+            userId = attendance.UserId,
+
+            date = attendance.Date,
+
+            checkInTime = attendance.CheckInTime,
+
+            checkOutTime = attendance.CheckOutTime,
+
+            requiredHours = branch.StandardWorkingHours,
+
+            workedHours = attendance.WorkedHours,
+
+            workingHoursBalance =
+                attendance.WorkingHoursBalance,
+
+            statusId = (int)attendance.Status,
+
+            status = attendance.Status.ToString(),
+
+            biometricDeviceId =
+                attendance.BiometricDeviceId
         });
     }
 }
@@ -944,8 +1111,6 @@ public class UpdateAttendanceRequest
     public TimeOnly? CheckOutTime { get; set; }
 
     public string? Status { get; set; }
-
-    public decimal? OvertimeHours { get; set; }
 
     public string? BiometricDeviceId { get; set; }
 }

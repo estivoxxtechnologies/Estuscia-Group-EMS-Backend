@@ -6,5 +6,8 @@ public record CreateTenantDto(
     string Domain,
     string Plan,
     int DefaultCurrencyId,
+    decimal StandardWorkingHours,
+    TimeOnly WorkStartTime,
+    TimeOnly WorkEndTime,
     bool isActive
 );

@@ -40,11 +40,26 @@ public class TenantsController : ControllerBase
                 domain = t.Domain,
                 plan = t.Plan,
 
-                // Currency master information
+                // -------------------------------------------------
+                // CURRENCY
+                // -------------------------------------------------
+
                 defaultCurrencyId = t.DefaultCurrencyId,
                 currency = t.DefaultCurrency.Code,
                 currencyName = t.DefaultCurrency.Name,
                 currencySymbol = t.DefaultCurrency.Symbol,
+
+                // -------------------------------------------------
+                // WORKING SCHEDULE
+                // -------------------------------------------------
+
+                standardWorkingHours = t.StandardWorkingHours,
+                workStartTime = t.WorkStartTime,
+                workEndTime = t.WorkEndTime,
+
+                // -------------------------------------------------
+                // STATUS / AUDIT
+                // -------------------------------------------------
 
                 isActive = t.IsActive,
                 createdAtUtc = t.CreatedAtUtc,
@@ -65,6 +80,10 @@ public class TenantsController : ControllerBase
         [FromBody] CreateTenantDto dto,
         CancellationToken cancellationToken)
     {
+        // ---------------------------------------------------------
+        // BASIC VALIDATION
+        // ---------------------------------------------------------
+
         if (string.IsNullOrWhiteSpace(dto.Name))
         {
             return BadRequest("Tenant name is required.");
@@ -75,7 +94,32 @@ public class TenantsController : ControllerBase
             return BadRequest("Tenant code is required.");
         }
 
+        // ---------------------------------------------------------
+        // STANDARD WORKING HOURS VALIDATION
+        // ---------------------------------------------------------
+
+        if (dto.StandardWorkingHours <= 0 ||
+            dto.StandardWorkingHours > 24)
+        {
+            return BadRequest(
+                "Standard working hours must be greater than 0 and cannot exceed 24 hours.");
+        }
+
+        // ---------------------------------------------------------
+        // WORKING TIME VALIDATION
+        // ---------------------------------------------------------
+
+        if (dto.WorkStartTime >= dto.WorkEndTime)
+        {
+            return BadRequest(
+                "Work start time must be earlier than work end time.");
+        }
+
         var code = dto.Code.Trim();
+
+        // ---------------------------------------------------------
+        // CHECK DUPLICATE CODE
+        // ---------------------------------------------------------
 
         var codeExists = await _context.Tenants
             .AnyAsync(
@@ -84,7 +128,8 @@ public class TenantsController : ControllerBase
 
         if (codeExists)
         {
-            return Conflict("A tenant with this code already exists.");
+            return Conflict(
+                "A tenant with this code already exists.");
         }
 
         // ---------------------------------------------------------
@@ -94,7 +139,8 @@ public class TenantsController : ControllerBase
         var currency = await _context.Currencies
             .AsNoTracking()
             .FirstOrDefaultAsync(
-                c => c.Id == dto.DefaultCurrencyId && c.IsActive,
+                c => c.Id == dto.DefaultCurrencyId &&
+                     c.IsActive,
                 cancellationToken);
 
         if (currency == null)
@@ -114,15 +160,30 @@ public class TenantsController : ControllerBase
             Domain = dto.Domain?.Trim() ?? string.Empty,
             Plan = dto.Plan?.Trim() ?? "Enterprise Pro",
 
-            // New currency architecture
+            // -----------------------------------------------------
+            // WORKING SCHEDULE
+            // -----------------------------------------------------
+
+            StandardWorkingHours = dto.StandardWorkingHours,
+            WorkStartTime = dto.WorkStartTime,
+            WorkEndTime = dto.WorkEndTime,
+
+            // -----------------------------------------------------
+            // CURRENCY
+            // -----------------------------------------------------
+
             DefaultCurrencyId = currency.Id,
 
-            IsActive = true
+            // -----------------------------------------------------
+            // STATUS
+            // -----------------------------------------------------
+
+            IsActive = dto.isActive
         };
 
         _context.Tenants.Add(tenant);
 
-        // First save is required to generate Tenant.Id
+        // First save generates Tenant.Id
         await _context.SaveChangesAsync(cancellationToken);
 
         // ---------------------------------------------------------
@@ -133,25 +194,20 @@ public class TenantsController : ControllerBase
         {
             TenantId = tenant.Id,
 
-            // Preserve the currency associated with this
-            // tenant payment.
             CurrencyId = currency.Id,
 
-            // No branches initially
             TotalBranches = 0,
 
-            // Default payment mode
             PaymentMode = PaymentMode.Monthly,
 
-            // Payment has not been made yet
             Amount = 0,
+
             PaymentStatus = PaymentStatus.Pending,
 
             PaymentDateUtc = null,
             ValidFromUtc = null,
             ValidUntilUtc = null,
 
-            // Newly created tenant is not registered yet
             RegistrationStatus = false,
 
             Notes = null
@@ -173,11 +229,18 @@ public class TenantsController : ControllerBase
             domain = tenant.Domain,
             plan = tenant.Plan,
 
+            // Currency
             defaultCurrencyId = tenant.DefaultCurrencyId,
             currency = currency.Code,
             currencyName = currency.Name,
             currencySymbol = currency.Symbol,
 
+            // Working schedule
+            standardWorkingHours = tenant.StandardWorkingHours,
+            workStartTime = tenant.WorkStartTime,
+            workEndTime = tenant.WorkEndTime,
+
+            // Status / audit
             isActive = tenant.IsActive,
             createdAtUtc = tenant.CreatedAtUtc,
             updatedAtUtc = tenant.UpdatedAtUtc,
@@ -195,6 +258,10 @@ public class TenantsController : ControllerBase
         [FromBody] UpdateTenantDto dto,
         CancellationToken cancellationToken)
     {
+        // ---------------------------------------------------------
+        // FIND TENANT
+        // ---------------------------------------------------------
+
         var tenant = await _context.Tenants
             .FirstOrDefaultAsync(
                 t => t.Id == id,
@@ -204,6 +271,10 @@ public class TenantsController : ControllerBase
         {
             return NotFound("Tenant not found.");
         }
+
+        // ---------------------------------------------------------
+        // BASIC VALIDATION
+        // ---------------------------------------------------------
 
         if (string.IsNullOrWhiteSpace(dto.Name))
         {
@@ -215,16 +286,43 @@ public class TenantsController : ControllerBase
             return BadRequest("Tenant code is required.");
         }
 
+        // ---------------------------------------------------------
+        // STANDARD WORKING HOURS VALIDATION
+        // ---------------------------------------------------------
+
+        if (dto.StandardWorkingHours <= 0 ||
+            dto.StandardWorkingHours > 24)
+        {
+            return BadRequest(
+                "Standard working hours must be greater than 0 and cannot exceed 24 hours.");
+        }
+
+        // ---------------------------------------------------------
+        // WORKING TIME VALIDATION
+        // ---------------------------------------------------------
+
+        if (dto.WorkStartTime >= dto.WorkEndTime)
+        {
+            return BadRequest(
+                "Work start time must be earlier than work end time.");
+        }
+
         var code = dto.Code.Trim();
+
+        // ---------------------------------------------------------
+        // CHECK DUPLICATE CODE
+        // ---------------------------------------------------------
 
         var codeExists = await _context.Tenants
             .AnyAsync(
-                t => t.Code == code && t.Id != id,
+                t => t.Code == code &&
+                     t.Id != id,
                 cancellationToken);
 
         if (codeExists)
         {
-            return Conflict("A tenant with this code already exists.");
+            return Conflict(
+                "A tenant with this code already exists.");
         }
 
         // ---------------------------------------------------------
@@ -234,7 +332,8 @@ public class TenantsController : ControllerBase
         var currency = await _context.Currencies
             .AsNoTracking()
             .FirstOrDefaultAsync(
-                c => c.Id == dto.DefaultCurrencyId && c.IsActive,
+                c => c.Id == dto.DefaultCurrencyId &&
+                     c.IsActive,
                 cancellationToken);
 
         if (currency == null)
@@ -251,7 +350,30 @@ public class TenantsController : ControllerBase
         tenant.Code = code;
         tenant.Domain = dto.Domain?.Trim() ?? string.Empty;
         tenant.Plan = dto.Plan?.Trim() ?? "Enterprise Pro";
+
+        // ---------------------------------------------------------
+        // WORKING SCHEDULE
+        // ---------------------------------------------------------
+
+        tenant.StandardWorkingHours =
+            dto.StandardWorkingHours;
+
+        tenant.WorkStartTime =
+            dto.WorkStartTime;
+
+        tenant.WorkEndTime =
+            dto.WorkEndTime;
+
+        // ---------------------------------------------------------
+        // CURRENCY
+        // ---------------------------------------------------------
+
         tenant.DefaultCurrencyId = currency.Id;
+
+        // ---------------------------------------------------------
+        // STATUS
+        // ---------------------------------------------------------
+
         tenant.IsActive = dto.isActive;
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -268,11 +390,18 @@ public class TenantsController : ControllerBase
             domain = tenant.Domain,
             plan = tenant.Plan,
 
+            // Currency
             defaultCurrencyId = tenant.DefaultCurrencyId,
             currency = currency.Code,
             currencyName = currency.Name,
             currencySymbol = currency.Symbol,
 
+            // Working schedule
+            standardWorkingHours = tenant.StandardWorkingHours,
+            workStartTime = tenant.WorkStartTime,
+            workEndTime = tenant.WorkEndTime,
+
+            // Status / audit
             isActive = tenant.IsActive,
             createdAtUtc = tenant.CreatedAtUtc,
             updatedAtUtc = tenant.UpdatedAtUtc,

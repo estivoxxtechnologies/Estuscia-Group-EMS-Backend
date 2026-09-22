@@ -123,6 +123,13 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasForeignKey(x => x.CurrencyId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        modelBuilder.Entity<Tenant>()
+            .Property(e => e.StandardWorkingHours)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<TenantBranch>()
+            .Property(e => e.StandardWorkingHours)
+            .HasPrecision(5, 2);
 
         // ========================================================
         // APPLICATION USER
@@ -1089,9 +1096,9 @@ public class AppDbContext : DbContext, IAppDbContext
                 _tenantService.IsSuperAdmin ||
                 e.TenantId == _tenantService.TenantId);
 
-        // ============================================================
+        // ========================================================
         // DECIMAL PRECISION
-        // ============================================================
+        // ========================================================
 
         modelBuilder.Entity<ApplicationUser>()
             .Property(e => e.SalaryBase)
@@ -1110,7 +1117,68 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasPrecision(8, 4);
 
         modelBuilder.Entity<AttendanceRecord>()
-            .Property(e => e.OvertimeHours)
+            .Property(e => e.WorkedHours)
+            .HasPrecision(10, 2);
+
+        modelBuilder.Entity<AttendanceRecord>()
+            .Property(e => e.WorkingHoursBalance)
+            .HasPrecision(10, 2);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.MinAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.MaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.MonthlyRoiPercent)
+            .HasPrecision(8, 4);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.AnnualYieldPercent)
+            .HasPrecision(8, 4);
+
+        modelBuilder.Entity<InvestmentSlab>()
+            .Property(e => e.StaffIncentivePercent)
+            .HasPrecision(8, 4);
+
+        // ========================================================
+        // WORKING SCHEDULE
+        // ========================================================
+
+        modelBuilder.Entity<Tenant>()
+            .Property(e => e.StandardWorkingHours)
+            .HasPrecision(5, 2)
+            .HasDefaultValue(8.00m);
+
+        modelBuilder.Entity<Tenant>()
+            .Property(e => e.WorkStartTime)
+            .HasColumnType("time");
+
+        modelBuilder.Entity<Tenant>()
+            .Property(e => e.WorkEndTime)
+            .HasColumnType("time");
+
+        modelBuilder.Entity<TenantBranch>()
+            .Property(e => e.StandardWorkingHours)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<TenantBranch>()
+            .Property(e => e.WorkStartTime)
+            .HasColumnType("time");
+
+        modelBuilder.Entity<TenantBranch>()
+            .Property(e => e.WorkEndTime)
+            .HasColumnType("time");
+
+        modelBuilder.Entity<AttendanceRecord>()
+            .Property(e => e.WorkedHours)
+            .HasPrecision(10, 2);
+
+        modelBuilder.Entity<AttendanceRecord>()
+            .Property(e => e.WorkingHoursBalance)
             .HasPrecision(10, 2);
 
         modelBuilder.Entity<InvestmentSlab>()

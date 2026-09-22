@@ -4,6 +4,7 @@ using Estuscia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Estuscia.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260922055018_AddStandardWorkingHours")]
+    partial class AddStandardWorkingHours
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -134,6 +137,10 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Property<DateOnly>("Date")
                         .HasColumnType("date");
 
+                    b.Property<decimal>("OvertimeHours")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("decimal(10,2)");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -148,14 +155,6 @@ namespace Estuscia.Infrastructure.Migrations
 
                     b.Property<int>("UserId")
                         .HasColumnType("int");
-
-                    b.Property<decimal>("WorkedHours")
-                        .HasPrecision(10, 2)
-                        .HasColumnType("decimal(10,2)");
-
-                    b.Property<decimal>("WorkingHoursBalance")
-                        .HasPrecision(10, 2)
-                        .HasColumnType("decimal(10,2)");
 
                     b.HasKey("Id");
 
@@ -1126,20 +1125,8 @@ namespace Estuscia.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<decimal>("StandardWorkingHours")
-                        .ValueGeneratedOnAdd()
-                        .HasPrecision(5, 2)
-                        .HasColumnType("decimal(5,2)")
-                        .HasDefaultValue(8.00m);
-
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("datetime2");
-
-                    b.Property<TimeOnly>("WorkEndTime")
-                        .HasColumnType("time");
-
-                    b.Property<TimeOnly>("WorkStartTime")
-                        .HasColumnType("time");
 
                     b.HasKey("Id");
 
@@ -1178,21 +1165,11 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
-                    b.Property<decimal>("StandardWorkingHours")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("decimal(5,2)");
-
                     b.Property<int>("TenantId")
                         .HasColumnType("int");
 
                     b.Property<DateTime?>("UpdatedAtUtc")
                         .HasColumnType("datetime2");
-
-                    b.Property<TimeOnly?>("WorkEndTime")
-                        .HasColumnType("time");
-
-                    b.Property<TimeOnly?>("WorkStartTime")
-                        .HasColumnType("time");
 
                     b.HasKey("Id");
 

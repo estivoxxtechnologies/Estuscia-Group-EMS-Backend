@@ -53,7 +53,36 @@ public class BranchesController : ControllerBase
                 City = b.City,
                 IsActive = b.IsActive,
 
+                // -------------------------------------------------
+                // CURRENCY
+                // -------------------------------------------------
+
                 CurrencyId = b.CurrencyId,
+
+                // -------------------------------------------------
+                // BRANCH OVERRIDES
+                // -------------------------------------------------
+
+                StandardWorkingHours = b.StandardWorkingHours,
+                WorkStartTime = b.WorkStartTime,
+                WorkEndTime = b.WorkEndTime,
+
+                // -------------------------------------------------
+                // EFFECTIVE VALUES
+                // Branch value ?? Tenant value
+                // -------------------------------------------------
+
+                EffectiveStandardWorkingHours =
+                    b.StandardWorkingHours ??
+                    b.Tenant.StandardWorkingHours,
+
+                EffectiveWorkStartTime =
+                    b.WorkStartTime ??
+                    b.Tenant.WorkStartTime,
+
+                EffectiveWorkEndTime =
+                    b.WorkEndTime ??
+                    b.Tenant.WorkEndTime,
 
                 Currency = b.Currency == null
                     ? null
@@ -105,7 +134,26 @@ public class BranchesController : ControllerBase
                 City = b.City,
                 IsActive = b.IsActive,
 
+                // Currency
                 CurrencyId = b.CurrencyId,
+
+                // Branch overrides
+                StandardWorkingHours = b.StandardWorkingHours,
+                WorkStartTime = b.WorkStartTime,
+                WorkEndTime = b.WorkEndTime,
+
+                // Effective schedule
+                EffectiveStandardWorkingHours =
+                    b.StandardWorkingHours ??
+                    b.Tenant.StandardWorkingHours,
+
+                EffectiveWorkStartTime =
+                    b.WorkStartTime ??
+                    b.Tenant.WorkStartTime,
+
+                EffectiveWorkEndTime =
+                    b.WorkEndTime ??
+                    b.Tenant.WorkEndTime,
 
                 Currency = b.Currency == null
                     ? null
@@ -132,6 +180,10 @@ public class BranchesController : ControllerBase
         [FromBody] CreateBranchDto dto,
         CancellationToken cancellationToken)
     {
+        // -----------------------------------------------------
+        // BASIC VALIDATION
+        // -----------------------------------------------------
+
         if (string.IsNullOrWhiteSpace(dto.BranchName))
         {
             return BadRequest(new
@@ -202,12 +254,47 @@ public class BranchesController : ControllerBase
         }
 
         // -----------------------------------------------------
+        // VALIDATE STANDARD WORKING HOURS OVERRIDE
+        //
+        // NULL = inherit tenant
+        // -----------------------------------------------------
+
+        if (dto.StandardWorkingHours.HasValue &&
+            (dto.StandardWorkingHours.Value <= 0 ||
+             dto.StandardWorkingHours.Value > 24))
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Standard working hours must be greater than 0 and cannot exceed 24 hours."
+            });
+        }
+
+        // -----------------------------------------------------
+        // VALIDATE WORK START / END OVERRIDES
+        //
+        // NULL = inherit tenant
+        // -----------------------------------------------------
+
+        if (dto.WorkStartTime.HasValue &&
+            dto.WorkEndTime.HasValue &&
+            dto.WorkStartTime.Value >= dto.WorkEndTime.Value)
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Work start time must be earlier than work end time."
+            });
+        }
+
+        // -----------------------------------------------------
         // CREATE
         // -----------------------------------------------------
 
         var branch = new TenantBranch
         {
             TenantId = tenantId,
+
             BranchName = branchName,
 
             City = string.IsNullOrWhiteSpace(dto.City)
@@ -216,7 +303,20 @@ public class BranchesController : ControllerBase
 
             IsActive = true,
 
-            CurrencyId = dto.CurrencyId
+            CurrencyId = currency.Id,
+
+            // -------------------------------------------------
+            // NULL MEANS INHERIT FROM TENANT
+            // -------------------------------------------------
+
+            StandardWorkingHours =
+                dto.StandardWorkingHours,
+
+            WorkStartTime =
+                dto.WorkStartTime,
+
+            WorkEndTime =
+                dto.WorkEndTime
         };
 
         _dbContext.TenantBranches.Add(branch);
@@ -238,6 +338,29 @@ public class BranchesController : ControllerBase
 
             CurrencyId = currency.Id,
 
+            // Branch overrides
+            StandardWorkingHours =
+                branch.StandardWorkingHours,
+
+            WorkStartTime =
+                branch.WorkStartTime,
+
+            WorkEndTime =
+                branch.WorkEndTime,
+
+            // Effective values
+            EffectiveStandardWorkingHours =
+                branch.StandardWorkingHours ??
+                tenant.StandardWorkingHours,
+
+            EffectiveWorkStartTime =
+                branch.WorkStartTime ??
+                tenant.WorkStartTime,
+
+            EffectiveWorkEndTime =
+                branch.WorkEndTime ??
+                tenant.WorkEndTime,
+
             Currency = new CurrencyDto(
                 currency.Id,
                 currency.Code,
@@ -258,6 +381,10 @@ public class BranchesController : ControllerBase
         [FromBody] UpdateBranchDto dto,
         CancellationToken cancellationToken)
     {
+        // -----------------------------------------------------
+        // BASIC VALIDATION
+        // -----------------------------------------------------
+
         if (string.IsNullOrWhiteSpace(dto.BranchName))
         {
             return BadRequest(new
@@ -267,11 +394,12 @@ public class BranchesController : ControllerBase
         }
 
         // -----------------------------------------------------
-        // BRANCH
+        // BRANCH + TENANT
         // -----------------------------------------------------
 
         var branch =
             await _dbContext.TenantBranches
+                .Include(b => b.Tenant)
                 .FirstOrDefaultAsync(
                     b => b.Id == branchId,
                     cancellationToken);
@@ -329,6 +457,36 @@ public class BranchesController : ControllerBase
         }
 
         // -----------------------------------------------------
+        // VALIDATE STANDARD WORKING HOURS OVERRIDE
+        // -----------------------------------------------------
+
+        if (dto.StandardWorkingHours.HasValue &&
+            (dto.StandardWorkingHours.Value <= 0 ||
+             dto.StandardWorkingHours.Value > 24))
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Standard working hours must be greater than 0 and cannot exceed 24 hours."
+            });
+        }
+
+        // -----------------------------------------------------
+        // VALIDATE WORK START / END OVERRIDES
+        // -----------------------------------------------------
+
+        if (dto.WorkStartTime.HasValue &&
+            dto.WorkEndTime.HasValue &&
+            dto.WorkStartTime.Value >= dto.WorkEndTime.Value)
+        {
+            return BadRequest(new
+            {
+                message =
+                    "Work start time must be earlier than work end time."
+            });
+        }
+
+        // -----------------------------------------------------
         // UPDATE
         // -----------------------------------------------------
 
@@ -341,7 +499,22 @@ public class BranchesController : ControllerBase
 
         branch.IsActive = dto.IsActive;
 
-        branch.CurrencyId = dto.CurrencyId;
+        branch.CurrencyId = currency.Id;
+
+        // -----------------------------------------------------
+        // WORKING SCHEDULE OVERRIDES
+        //
+        // NULL = inherit tenant setting
+        // -----------------------------------------------------
+
+        branch.StandardWorkingHours =
+            dto.StandardWorkingHours;
+
+        branch.WorkStartTime =
+            dto.WorkStartTime;
+
+        branch.WorkEndTime =
+            dto.WorkEndTime;
 
         await _dbContext.SaveChangesAsync(
             cancellationToken);
@@ -359,6 +532,29 @@ public class BranchesController : ControllerBase
             IsActive = branch.IsActive,
 
             CurrencyId = currency.Id,
+
+            // Branch overrides
+            StandardWorkingHours =
+                branch.StandardWorkingHours,
+
+            WorkStartTime =
+                branch.WorkStartTime,
+
+            WorkEndTime =
+                branch.WorkEndTime,
+
+            // Effective values
+            EffectiveStandardWorkingHours =
+                branch.StandardWorkingHours ??
+                branch.Tenant.StandardWorkingHours,
+
+            EffectiveWorkStartTime =
+                branch.WorkStartTime ??
+                branch.Tenant.WorkStartTime,
+
+            EffectiveWorkEndTime =
+                branch.WorkEndTime ??
+                branch.Tenant.WorkEndTime,
 
             Currency = new CurrencyDto(
                 currency.Id,
@@ -382,6 +578,7 @@ public class BranchesController : ControllerBase
     {
         var branch =
             await _dbContext.TenantBranches
+                .Include(b => b.Tenant)
                 .FirstOrDefaultAsync(
                     b => b.Id == branchId,
                     cancellationToken);
@@ -414,6 +611,29 @@ public class BranchesController : ControllerBase
             IsActive = branch.IsActive,
 
             CurrencyId = branch.CurrencyId,
+
+            // Branch overrides
+            StandardWorkingHours =
+                branch.StandardWorkingHours,
+
+            WorkStartTime =
+                branch.WorkStartTime,
+
+            WorkEndTime =
+                branch.WorkEndTime,
+
+            // Effective values
+            EffectiveStandardWorkingHours =
+                branch.StandardWorkingHours ??
+                branch.Tenant.StandardWorkingHours,
+
+            EffectiveWorkStartTime =
+                branch.WorkStartTime ??
+                branch.Tenant.WorkStartTime,
+
+            EffectiveWorkEndTime =
+                branch.WorkEndTime ??
+                branch.Tenant.WorkEndTime,
 
             Currency = currency == null
                 ? null

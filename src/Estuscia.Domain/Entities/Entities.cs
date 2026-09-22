@@ -14,6 +14,9 @@ public class Tenant : BaseEntity
     public bool IsActive { get; set; } = true;
     public List<TenantBranch> Branches { get; set; } = new();
     public List<ApplicationUser> Users { get; set; } = new();
+    public decimal StandardWorkingHours { get; set; } = 8.00m;
+    public TimeOnly WorkStartTime { get; set; } = new(9, 0);
+    public TimeOnly WorkEndTime { get; set; } = new(17, 0);
 }
 
 public class Role : BaseEntity
@@ -42,6 +45,10 @@ public class TenantBranch : BaseEntity
 
     public bool IsActive { get; set; } = true;
     public int CurrencyId { get; set; }
+    public decimal? StandardWorkingHours { get; set; } = 8.00m;
+    public TimeOnly? WorkStartTime { get; set; }
+
+    public TimeOnly? WorkEndTime { get; set; }
 
     public Currency Currency { get; set; } = null!;
 
@@ -191,7 +198,9 @@ public class AttendanceRecord : BaseEntity, IBranchScopedEntity
 
     public AttendanceStatus Status { get; set; }
 
-    public decimal OvertimeHours { get; set; }
+    public decimal WorkedHours { get; set; }
+
+    public decimal WorkingHoursBalance { get; set; }
 
     public string? BiometricDeviceId { get; set; }
 }
