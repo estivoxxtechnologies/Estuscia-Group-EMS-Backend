@@ -29,6 +29,16 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<ApplicationUser> Users => Set<ApplicationUser>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<Currency> Currencies => Set<Currency>();
+    public DbSet<EmployeeSalaryHistory> EmployeeSalaryHistories =>
+    Set<EmployeeSalaryHistory>();
+    public DbSet<PayrollCycle> PayrollCycles =>
+    Set<PayrollCycle>();
+
+    public DbSet<PayrollRecord> PayrollRecords =>
+        Set<PayrollRecord>();
+
+    public DbSet<PayrollAdjustment> PayrollAdjustments =>
+        Set<PayrollAdjustment>();
 
     // ============================================================
     // PERMISSIONS
@@ -178,6 +188,320 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasForeignKey(e => e.RoleNumber)
             .HasPrincipalKey(e => e.RoleNumber)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // ========================================================
+        // EMPLOYEE SALARY HISTORY
+        // ========================================================
+
+        modelBuilder.Entity<EmployeeSalaryHistory>(entity =>
+        {
+            entity.ToTable("EmployeeSalaryHistories");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.PreviousSalary)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.NewSalary)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.Reason)
+                .HasMaxLength(1000);
+
+            entity.Property(e => e.RejectionReason)
+                .HasMaxLength(1000);
+
+            entity.Property(e => e.Status)
+                .HasConversion<int>()
+                .IsRequired();
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.ApprovedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.RejectedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<TenantBranch>()
+                .WithMany()
+                .HasForeignKey(e => new
+                {
+                    e.TenantId,
+                    e.BranchId
+                })
+                .HasPrincipalKey(e => new
+                {
+                    e.TenantId,
+                    e.Id
+                })
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.UserId,
+                e.CreatedAtUtc
+            });
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.Status
+            });
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.BranchId,
+                e.Status
+            });
+        });
+
+        //==================================================
+        //PAYROLL
+
+        modelBuilder.Entity<PayrollCycle>(entity =>
+        {
+            entity.ToTable("PayrollCycles");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.MonthYear)
+                .HasMaxLength(20)
+                .IsRequired();
+
+            entity.Property(e => e.Status)
+                .HasConversion<int>()
+                .IsRequired();
+
+            entity.Property(e => e.TotalBasicSalary)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.TotalBonus)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.TotalDeduction)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.TotalNetSalary)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.RejectionReason)
+                .HasMaxLength(1000);
+
+            // Tenant
+            entity.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // HR submitter
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.SubmittedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Company Admin approver
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.ApprovedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Rejector
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.RejectedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Payment user
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.PaidByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.Year,
+                e.Month
+            })
+            .IsUnique();
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.Status
+            });
+        });
+
+        //PAYROLL RECORD
+
+        modelBuilder.Entity<PayrollRecord>(entity =>
+        {
+            entity.ToTable("PayrollRecords");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.BasicSalary)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.TotalBonus)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.TotalDeduction)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.NetSalary)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.Status)
+                .HasConversion<int>()
+                .IsRequired();
+
+            // Tenant
+            entity.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Employee
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Payroll cycle
+            entity.HasOne(e => e.PayrollCycle)
+                .WithMany(e => e.PayrollRecords)
+                .HasForeignKey(e => e.PayrollCycleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // HR submitter
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.SubmittedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Company Admin approver
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.ApprovedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Payment user
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.PaidByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.PayrollCycleId,
+                e.UserId
+            })
+            .IsUnique();
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.UserId
+            });
+        });
+
+        // PAYROLL ADJUSTMENT
+
+        modelBuilder.Entity<PayrollAdjustment>(entity =>
+        {
+            entity.ToTable("PayrollAdjustments");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Type)
+                .HasConversion<int>()
+                .IsRequired();
+
+            entity.Property(e => e.Status)
+                .HasConversion<int>()
+                .IsRequired();
+
+            entity.Property(e => e.Amount)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            entity.Property(e => e.Reason)
+                .HasMaxLength(1000)
+                .IsRequired();
+
+            entity.Property(e => e.RejectionReason)
+                .HasMaxLength(1000);
+
+            // Tenant
+            entity.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Employee
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Payroll cycle
+            entity.HasOne(e => e.PayrollCycle)
+                .WithMany()
+                .HasForeignKey(e => e.PayrollCycleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Approver
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.ApprovedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Rejector
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.RejectedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.PayrollCycleId,
+                e.UserId
+            });
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.Status
+            });
+        });
 
         // ========================================================
         // ROLE
@@ -1045,6 +1369,7 @@ public class AppDbContext : DbContext, IAppDbContext
                 _tenantService.IsSuperAdmin ||
                 e.TenantId == _tenantService.TenantId);
 
+
         modelBuilder.Entity<UserModulePermission>()
             .HasQueryFilter(e =>
                 _tenantService.IsSuperAdmin ||
@@ -1201,6 +1526,26 @@ public class AppDbContext : DbContext, IAppDbContext
             .Property(e => e.StaffIncentivePercent)
             .HasPrecision(8, 4);
 
+        modelBuilder.Entity<EmployeeSalaryHistory>()
+    .HasQueryFilter(e =>
+        _tenantService.IsSuperAdmin ||
+        e.TenantId == _tenantService.TenantId);
+
+        modelBuilder.Entity<PayrollCycle>()
+            .HasQueryFilter(e =>
+                _tenantService.IsSuperAdmin ||
+                e.TenantId == _tenantService.TenantId);
+
+        modelBuilder.Entity<PayrollRecord>()
+            .HasQueryFilter(e =>
+                _tenantService.IsSuperAdmin ||
+                e.TenantId == _tenantService.TenantId);
+
+        modelBuilder.Entity<PayrollAdjustment>()
+            .HasQueryFilter(e =>
+                _tenantService.IsSuperAdmin ||
+                e.TenantId == _tenantService.TenantId);
+
         // ========================================================
         // KNOWLEDGE VIDEO
         // ========================================================
@@ -1330,8 +1675,7 @@ public class AppDbContext : DbContext, IAppDbContext
         {
             if (entry.State == EntityState.Added)
             {
-                entry.Entity.CreatedAtUtc =
-                    DateTime.UtcNow;
+                entry.Entity.CreatedAtUtc = DateTime.UtcNow;
 
                 if (_tenantService.UserId.HasValue)
                 {
@@ -1341,8 +1685,13 @@ public class AppDbContext : DbContext, IAppDbContext
             }
             else if (entry.State == EntityState.Modified)
             {
-                entry.Entity.UpdatedAtUtc =
-                    DateTime.UtcNow;
+                entry.Entity.UpdatedAtUtc = DateTime.UtcNow;
+
+                if (_tenantService.UserId.HasValue)
+                {
+                    entry.Entity.UpdatedByUserId =
+                        _tenantService.UserId.Value;
+                }
             }
         }
 
