@@ -37,6 +37,9 @@ public class PayrollRecord : BaseEntity, IMultiTenantEntity
     // Payment
     public int? PaidByUserId { get; set; }
 
+    public PayrollPaymentStatus PaymentStatus { get; set; }
+        = PayrollPaymentStatus.Unpaid;
+
     public DateTime? PaidAtUtc { get; set; }
 
     public bool IsLocked { get; set; }

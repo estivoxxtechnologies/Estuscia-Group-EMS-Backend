@@ -1,11 +1,13 @@
 ﻿using System.Security.Claims;
+using System.Text.Json.Serialization;
+
 using Estuscia.Application.Common.Interfaces;
 using Estuscia.Domain.Entities;
 using Estuscia.Domain.Enums;
 using Estuscia.Infrastructure.Persistence;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Estuscia.WebApi.Controllers;
@@ -49,16 +51,6 @@ public class PayrollController : ControllerBase
             });
         }
 
-        if (IsHrOps())
-        {
-            var hrBranchId = await GetCurrentUserBranchId();
-
-            if (hrBranchId.HasValue)
-            {
-                effectiveBranchId = hrBranchId;
-            }
-        }
-
         var query = _db.PayrollCycles
             .AsNoTracking()
             .Include(x => x.PayrollRecords)
@@ -73,54 +65,115 @@ public class PayrollController : ControllerBase
         var cycles = await query
             .OrderByDescending(x => x.Year)
             .ThenByDescending(x => x.Month)
-            .Select(x => new PayrollCycleDto
-            {
-                Id = x.Id,
-                TenantId = x.TenantId,
-
-                Year = x.Year,
-                Month = x.Month,
-                MonthYear = x.MonthYear,
-
-                Status = x.Status.ToString(),
-
-                TotalBasicSalary = x.TotalBasicSalary,
-                TotalBonus = x.TotalBonus,
-                TotalDeduction = x.TotalDeduction,
-                TotalNetSalary = x.TotalNetSalary,
-
-                SubmittedByUserId = x.SubmittedByUserId,
-                SubmittedAtUtc = x.SubmittedAtUtc,
-
-                ApprovedByUserId = x.ApprovedByUserId,
-                ApprovedAtUtc = x.ApprovedAtUtc,
-
-                RejectedByUserId = x.RejectedByUserId,
-                RejectedAtUtc = x.RejectedAtUtc,
-                RejectionReason = x.RejectionReason,
-
-                PaidByUserId = x.PaidByUserId,
-                PaidAtUtc = x.PaidAtUtc,
-
-                IsLocked = x.IsLocked,
-
-                EmployeeCount = x.PayrollRecords.Count
-            })
             .ToListAsync();
 
-        /*
-         * IMPORTANT:
-         * PayrollCycle currently does not have BranchId.
-         *
-         * Therefore the cycle itself cannot be directly filtered by branch.
-         * The branch-specific filtering is handled when loading cycle
-         * details / records.
-         *
-         * Once BranchId is added to PayrollCycle, this endpoint should
-         * filter directly by x.BranchId.
-         */
+        var result = new List<PayrollCycleDto>();
 
-        return Ok(cycles);
+        foreach (var cycle in cycles)
+        {
+            var visibleRecords =
+                cycle.PayrollRecords.AsEnumerable();
+
+            /*
+             * Branch filtering cannot be done directly from
+             * PayrollCycle because PayrollCycle does not contain
+             * BranchId.
+             */
+            if (effectiveBranchId.HasValue)
+            {
+                var userIds = visibleRecords
+                    .Select(x => x.UserId)
+                    .Distinct()
+                    .ToList();
+
+                var allowedUserIds = await _db.Users
+                    .AsNoTracking()
+                    .Where(x =>
+                        userIds.Contains(x.Id) &&
+                        x.BranchId == effectiveBranchId.Value)
+                    .Select(x => x.Id)
+                    .ToListAsync();
+
+                var allowedSet =
+                    allowedUserIds.ToHashSet();
+
+                visibleRecords = visibleRecords
+                    .Where(x =>
+                        allowedSet.Contains(x.UserId));
+            }
+
+            var visibleRecordList =
+                visibleRecords.ToList();
+
+            result.Add(new PayrollCycleDto
+            {
+                Id = cycle.Id,
+                TenantId = cycle.TenantId,
+
+                Year = cycle.Year,
+                Month = cycle.Month,
+                MonthYear = cycle.MonthYear,
+
+                Status = cycle.Status.ToString(),
+
+                TotalBasicSalary =
+                    visibleRecordList.Sum(x => x.BasicSalary),
+
+                TotalBonus =
+                    visibleRecordList.Sum(x => x.TotalBonus),
+
+                TotalDeduction =
+                    visibleRecordList.Sum(x => x.TotalDeduction),
+
+                TotalNetSalary =
+                    visibleRecordList.Sum(x => x.NetSalary),
+
+                SubmittedByUserId =
+                    cycle.SubmittedByUserId,
+
+                SubmittedAtUtc =
+                    cycle.SubmittedAtUtc,
+
+                ApprovedByUserId =
+                    cycle.ApprovedByUserId,
+
+                ApprovedAtUtc =
+                    cycle.ApprovedAtUtc,
+
+                RejectedByUserId =
+                    cycle.RejectedByUserId,
+
+                RejectedAtUtc =
+                    cycle.RejectedAtUtc,
+
+                RejectionReason =
+                    cycle.RejectionReason,
+
+                PaidByUserId =
+                    cycle.PaidByUserId,
+
+                PaidAtUtc =
+                    cycle.PaidAtUtc,
+
+                IsLocked =
+                    cycle.IsLocked,
+
+                EmployeeCount =
+                    visibleRecordList.Count,
+
+                PaidEmployeeCount =
+                    visibleRecordList.Count(x =>
+                        x.PaymentStatus ==
+                        PayrollPaymentStatus.Paid),
+
+                UnpaidEmployeeCount =
+                    visibleRecordList.Count(x =>
+                        x.PaymentStatus ==
+                        PayrollPaymentStatus.Unpaid)
+            });
+        }
+
+        return Ok(result);
     }
 
     // ============================================================
@@ -136,7 +189,8 @@ public class PayrollController : ControllerBase
         var cycle = await _db.PayrollCycles
             .AsNoTracking()
             .Include(x => x.PayrollRecords)
-            .FirstOrDefaultAsync(x => x.Id == id);
+            .FirstOrDefaultAsync(x =>
+                x.Id == id);
 
         if (cycle == null)
         {
@@ -156,10 +210,10 @@ public class PayrollController : ControllerBase
             .OrderBy(x => x.UserId)
             .ToList();
 
-        /*
-         * Branch managers and fixed-branch HR should only see
-         * employees belonging to their effective branch.
-         */
+        // --------------------------------------------------------
+        // Branch filtering
+        // --------------------------------------------------------
+
         if (effectiveBranchId.HasValue)
         {
             var recordUserIds = payrollRecords
@@ -175,10 +229,18 @@ public class PayrollController : ControllerBase
                 .Select(x => x.Id)
                 .ToListAsync();
 
+            var allowedSet =
+                allowedUserIds.ToHashSet();
+
             payrollRecords = payrollRecords
-                .Where(x => allowedUserIds.Contains(x.UserId))
+                .Where(x =>
+                    allowedSet.Contains(x.UserId))
                 .ToList();
         }
+
+        // --------------------------------------------------------
+        // Map records
+        // --------------------------------------------------------
 
         var records = payrollRecords
             .Select(x => new PayrollRecordDto
@@ -193,18 +255,35 @@ public class PayrollController : ControllerBase
                 NetSalary = x.NetSalary,
 
                 Status = x.Status.ToString(),
+
+                PaymentStatus =
+                    x.PaymentStatus.ToString(),
+
                 IsLocked = x.IsLocked,
 
-                SubmittedByUserId = x.SubmittedByUserId,
-                SubmittedAtUtc = x.SubmittedAtUtc,
+                SubmittedByUserId =
+                    x.SubmittedByUserId,
 
-                ApprovedByUserId = x.ApprovedByUserId,
-                ApprovedAtUtc = x.ApprovedAtUtc,
+                SubmittedAtUtc =
+                    x.SubmittedAtUtc,
 
-                PaidByUserId = x.PaidByUserId,
-                PaidAtUtc = x.PaidAtUtc
+                ApprovedByUserId =
+                    x.ApprovedByUserId,
+
+                ApprovedAtUtc =
+                    x.ApprovedAtUtc,
+
+                PaidByUserId =
+                    x.PaidByUserId,
+
+                PaidAtUtc =
+                    x.PaidAtUtc
             })
             .ToList();
+
+        // --------------------------------------------------------
+        // Employee information
+        // --------------------------------------------------------
 
         var userIds = records
             .Select(x => x.UserId)
@@ -213,7 +292,8 @@ public class PayrollController : ControllerBase
 
         var users = await _db.Users
             .AsNoTracking()
-            .Where(x => userIds.Contains(x.Id))
+            .Where(x =>
+                userIds.Contains(x.Id))
             .Select(x => new
             {
                 x.Id,
@@ -233,16 +313,26 @@ public class PayrollController : ControllerBase
             if (user == null)
                 continue;
 
-            record.EmployeeCode = user.EmployeeCode;
-            record.EmployeeName = user.FullName?.Trim();
-            record.Designation = user.Designation;
-            record.Department = user.Department;
-            record.BranchId = user.BranchId;
+            record.EmployeeCode =
+                user.EmployeeCode;
+
+            record.EmployeeName =
+                user.FullName?.Trim();
+
+            record.Designation =
+                user.Designation;
+
+            record.Department =
+                user.Department;
+
+            record.BranchId =
+                user.BranchId;
         }
 
-        /*
-         * Totals should represent the records visible to this user.
-         */
+        // --------------------------------------------------------
+        // Visible totals
+        // --------------------------------------------------------
+
         var visibleBasic =
             records.Sum(x => x.BasicSalary);
 
@@ -264,29 +354,63 @@ public class PayrollController : ControllerBase
             Month = cycle.Month,
             MonthYear = cycle.MonthYear,
 
-            Status = cycle.Status.ToString(),
+            Status =
+                cycle.Status.ToString(),
 
-            TotalBasicSalary = visibleBasic,
-            TotalBonus = visibleBonus,
-            TotalDeduction = visibleDeduction,
-            TotalNetSalary = visibleNet,
+            TotalBasicSalary =
+                visibleBasic,
 
-            SubmittedByUserId = cycle.SubmittedByUserId,
-            SubmittedAtUtc = cycle.SubmittedAtUtc,
+            TotalBonus =
+                visibleBonus,
 
-            ApprovedByUserId = cycle.ApprovedByUserId,
-            ApprovedAtUtc = cycle.ApprovedAtUtc,
+            TotalDeduction =
+                visibleDeduction,
 
-            RejectedByUserId = cycle.RejectedByUserId,
-            RejectedAtUtc = cycle.RejectedAtUtc,
-            RejectionReason = cycle.RejectionReason,
+            TotalNetSalary =
+                visibleNet,
 
-            PaidByUserId = cycle.PaidByUserId,
-            PaidAtUtc = cycle.PaidAtUtc,
+            SubmittedByUserId =
+                cycle.SubmittedByUserId,
 
-            IsLocked = cycle.IsLocked,
+            SubmittedAtUtc =
+                cycle.SubmittedAtUtc,
 
-            PayrollRecords = records
+            ApprovedByUserId =
+                cycle.ApprovedByUserId,
+
+            ApprovedAtUtc =
+                cycle.ApprovedAtUtc,
+
+            RejectedByUserId =
+                cycle.RejectedByUserId,
+
+            RejectedAtUtc =
+                cycle.RejectedAtUtc,
+
+            RejectionReason =
+                cycle.RejectionReason,
+
+            PaidByUserId =
+                cycle.PaidByUserId,
+
+            PaidAtUtc =
+                cycle.PaidAtUtc,
+
+            IsLocked =
+                cycle.IsLocked,
+
+            EmployeeCount =
+                records.Count,
+            PaidEmployeeCount =
+    records.Count(x =>
+        x.PaymentStatus == PayrollPaymentStatus.Paid.ToString()),
+
+            UnpaidEmployeeCount =
+    records.Count(x =>
+        x.PaymentStatus == PayrollPaymentStatus.Unpaid.ToString()),
+
+            PayrollRecords =
+                records
         });
     }
 
@@ -301,7 +425,8 @@ public class PayrollController : ControllerBase
         if (!CanManagePayroll())
             return Forbid();
 
-        if (request.Year < 2000 || request.Year > 2100)
+        if (request.Year < 2000 ||
+            request.Year > 2100)
         {
             return BadRequest(new
             {
@@ -309,7 +434,8 @@ public class PayrollController : ControllerBase
             });
         }
 
-        if (request.Month < 1 || request.Month > 12)
+        if (request.Month < 1 ||
+            request.Month > 12)
         {
             return BadRequest(new
             {
@@ -317,7 +443,8 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var tenantId = _tenantService.TenantId;
+        var tenantId =
+            _tenantService.TenantId;
 
         if (!tenantId.HasValue)
         {
@@ -328,23 +455,15 @@ public class PayrollController : ControllerBase
             });
         }
 
-        // --------------------------------------------------------
-        // Determine effective branch
-        // --------------------------------------------------------
-
         var effectiveBranchId =
-            await GetEffectiveBranchId(request.BranchId);
+            await GetEffectiveBranchId(
+                request.BranchId);
 
-        // Branch Manager can never generate payroll.
-        // CanManagePayroll already prevents this, but keep the
-        // branch protection explicit.
         if (IsBranchManager())
-        {
             return Forbid();
-        }
 
         // --------------------------------------------------------
-        // Check existing payroll
+        // Prevent duplicate month payroll
         // --------------------------------------------------------
 
         var exists = await _db.PayrollCycles
@@ -362,14 +481,15 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var monthYear = new DateTime(
-            request.Year,
-            request.Month,
-            1)
+        var monthYear =
+            new DateTime(
+                request.Year,
+                request.Month,
+                1)
             .ToString("MMMM yyyy");
 
         // --------------------------------------------------------
-        // Employee query
+        // Employees
         // --------------------------------------------------------
 
         var usersQuery = _db.Users
@@ -380,8 +500,10 @@ public class PayrollController : ControllerBase
 
         if (effectiveBranchId.HasValue)
         {
-            usersQuery = usersQuery.Where(x =>
-                x.BranchId == effectiveBranchId.Value);
+            usersQuery = usersQuery
+                .Where(x =>
+                    x.BranchId ==
+                    effectiveBranchId.Value);
         }
 
         var users = await usersQuery
@@ -405,18 +527,25 @@ public class PayrollController : ControllerBase
         }
 
         // --------------------------------------------------------
-        // Create payroll cycle
+        // Create cycle
         // --------------------------------------------------------
 
         var cycle = new PayrollCycle
         {
-            TenantId = tenantId.Value,
+            TenantId =
+                tenantId.Value,
 
-            Year = request.Year,
-            Month = request.Month,
-            MonthYear = monthYear,
+            Year =
+                request.Year,
 
-            Status = PayrollCycleStatus.Draft,
+            Month =
+                request.Month,
+
+            MonthYear =
+                monthYear,
+
+            Status =
+                PayrollCycleStatus.Draft,
 
             TotalBasicSalary = 0,
             TotalBonus = 0,
@@ -428,21 +557,31 @@ public class PayrollController : ControllerBase
 
         foreach (var user in users)
         {
-            var record = new PayrollRecord
+            var record = new Estuscia.Domain.Entities.PayrollRecord
             {
-                TenantId = tenantId.Value,
+                TenantId =
+                    tenantId.Value,
 
-                PayrollCycle = cycle,
-                UserId = user.Id,
+                PayrollCycle =
+                    cycle,
 
-                BasicSalary = user.SalaryBase,
+                UserId =
+                    user.Id,
+
+                BasicSalary =
+                    user.SalaryBase,
 
                 TotalBonus = 0,
                 TotalDeduction = 0,
 
-                NetSalary = user.SalaryBase,
+                NetSalary =
+                    user.SalaryBase,
 
-                Status = PayrollCycleStatus.Draft,
+                Status =
+                    PayrollCycleStatus.Draft,
+
+                PaymentStatus =
+                    PayrollPaymentStatus.Unpaid,
 
                 IsLocked = false
             };
@@ -458,9 +597,14 @@ public class PayrollController : ControllerBase
 
         return Ok(new
         {
-            message = "Payroll generated successfully.",
-            cycleId = cycle.Id,
-            branchId = effectiveBranchId
+            message =
+                "Payroll generated successfully.",
+
+            cycleId =
+                cycle.Id,
+
+            branchId =
+                effectiveBranchId
         });
     }
 
@@ -476,13 +620,15 @@ public class PayrollController : ControllerBase
 
         var cycle = await _db.PayrollCycles
             .Include(x => x.PayrollRecords)
-            .FirstOrDefaultAsync(x => x.Id == id);
+            .FirstOrDefaultAsync(x =>
+                x.Id == id);
 
         if (cycle == null)
         {
             return NotFound(new
             {
-                message = "Payroll cycle not found."
+                message =
+                    "Payroll cycle not found."
             });
         }
 
@@ -498,8 +644,10 @@ public class PayrollController : ControllerBase
             });
         }
 
-        if (cycle.Status != PayrollCycleStatus.Draft &&
-            cycle.Status != PayrollCycleStatus.Rejected)
+        if (cycle.Status !=
+                PayrollCycleStatus.Draft &&
+            cycle.Status !=
+                PayrollCycleStatus.Rejected)
         {
             return BadRequest(new
             {
@@ -517,10 +665,11 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var pendingAdjustments = await _db.PayrollAdjustments
-            .AnyAsync(x =>
-                x.PayrollCycleId == cycle.Id &&
-                x.Status ==
+        var pendingAdjustments =
+            await _db.PayrollAdjustments
+                .AnyAsync(x =>
+                    x.PayrollCycleId == cycle.Id &&
+                    x.Status ==
                     PayrollAdjustmentStatus.PendingApproval);
 
         if (pendingAdjustments)
@@ -532,13 +681,20 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var currentUserId = GetCurrentUserId();
+        var currentUserId =
+            GetCurrentUserId();
+
+        var now =
+            DateTime.UtcNow;
 
         cycle.Status =
             PayrollCycleStatus.SubmittedByHR;
 
-        cycle.SubmittedByUserId = currentUserId;
-        cycle.SubmittedAtUtc = DateTime.UtcNow;
+        cycle.SubmittedByUserId =
+            currentUserId;
+
+        cycle.SubmittedAtUtc =
+            now;
 
         cycle.RejectedByUserId = null;
         cycle.RejectedAtUtc = null;
@@ -549,8 +705,11 @@ public class PayrollController : ControllerBase
             record.Status =
                 PayrollCycleStatus.SubmittedByHR;
 
-            record.SubmittedByUserId = currentUserId;
-            record.SubmittedAtUtc = DateTime.UtcNow;
+            record.SubmittedByUserId =
+                currentUserId;
+
+            record.SubmittedAtUtc =
+                now;
         }
 
         await _db.SaveChangesAsync();
@@ -569,18 +728,23 @@ public class PayrollController : ControllerBase
     [HttpPost("{id:int}/approve")]
     public async Task<IActionResult> ApprovePayroll(int id)
     {
-        if (!IsCompanyAdmin() && !IsSuperAdmin())
+        if (!IsCompanyAdmin() &&
+            !IsSuperAdmin())
+        {
             return Forbid();
+        }
 
         var cycle = await _db.PayrollCycles
             .Include(x => x.PayrollRecords)
-            .FirstOrDefaultAsync(x => x.Id == id);
+            .FirstOrDefaultAsync(x =>
+                x.Id == id);
 
         if (cycle == null)
         {
             return NotFound(new
             {
-                message = "Payroll cycle not found."
+                message =
+                    "Payroll cycle not found."
             });
         }
 
@@ -591,7 +755,8 @@ public class PayrollController : ControllerBase
         {
             return BadRequest(new
             {
-                message = "Payroll is already locked."
+                message =
+                    "Payroll is already locked."
             });
         }
 
@@ -605,10 +770,11 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var pendingAdjustments = await _db.PayrollAdjustments
-            .AnyAsync(x =>
-                x.PayrollCycleId == cycle.Id &&
-                x.Status ==
+        var pendingAdjustments =
+            await _db.PayrollAdjustments
+                .AnyAsync(x =>
+                    x.PayrollCycleId == cycle.Id &&
+                    x.Status ==
                     PayrollAdjustmentStatus.PendingApproval);
 
         if (pendingAdjustments)
@@ -620,10 +786,11 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var rejectedAdjustments = await _db.PayrollAdjustments
-            .AnyAsync(x =>
-                x.PayrollCycleId == cycle.Id &&
-                x.Status ==
+        var rejectedAdjustments =
+            await _db.PayrollAdjustments
+                .AnyAsync(x =>
+                    x.PayrollCycleId == cycle.Id &&
+                    x.Status ==
                     PayrollAdjustmentStatus.Rejected);
 
         if (rejectedAdjustments)
@@ -635,28 +802,47 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var currentUserId = GetCurrentUserId();
+        var currentUserId =
+            GetCurrentUserId();
+
+        var now =
+            DateTime.UtcNow;
 
         cycle.Status =
             PayrollCycleStatus.ApprovedByCompanyAdmin;
 
-        cycle.ApprovedByUserId = currentUserId;
-        cycle.ApprovedAtUtc = DateTime.UtcNow;
+        cycle.ApprovedByUserId =
+            currentUserId;
+
+        cycle.ApprovedAtUtc =
+            now;
 
         foreach (var record in cycle.PayrollRecords)
         {
             record.Status =
                 PayrollCycleStatus.ApprovedByCompanyAdmin;
 
-            record.ApprovedByUserId = currentUserId;
-            record.ApprovedAtUtc = DateTime.UtcNow;
+            record.ApprovedByUserId =
+                currentUserId;
+
+            record.ApprovedAtUtc =
+                now;
+
+            /*
+             * PaymentStatus must remain Unpaid here.
+             */
+            record.PaymentStatus =
+                PayrollPaymentStatus.Unpaid;
+
+            record.IsLocked = false;
         }
 
         await _db.SaveChangesAsync();
 
         return Ok(new
         {
-            message = "Payroll approved successfully."
+            message =
+                "Payroll approved successfully."
         });
     }
 
@@ -669,18 +855,23 @@ public class PayrollController : ControllerBase
         int id,
         [FromBody] RejectPayrollRequest request)
     {
-        if (!IsCompanyAdmin() && !IsSuperAdmin())
+        if (!IsCompanyAdmin() &&
+            !IsSuperAdmin())
+        {
             return Forbid();
+        }
 
         var cycle = await _db.PayrollCycles
             .Include(x => x.PayrollRecords)
-            .FirstOrDefaultAsync(x => x.Id == id);
+            .FirstOrDefaultAsync(x =>
+                x.Id == id);
 
         if (cycle == null)
         {
             return NotFound(new
             {
-                message = "Payroll cycle not found."
+                message =
+                    "Payroll cycle not found."
             });
         }
 
@@ -706,6 +897,9 @@ public class PayrollController : ControllerBase
             });
         }
 
+        var now =
+            DateTime.UtcNow;
+
         cycle.Status =
             PayrollCycleStatus.Rejected;
 
@@ -713,7 +907,7 @@ public class PayrollController : ControllerBase
             GetCurrentUserId();
 
         cycle.RejectedAtUtc =
-            DateTime.UtcNow;
+            now;
 
         cycle.RejectionReason =
             request.Reason?.Trim();
@@ -728,89 +922,347 @@ public class PayrollController : ControllerBase
 
         return Ok(new
         {
-            message = "Payroll rejected.",
-            reason = request.Reason
+            message =
+                "Payroll rejected.",
+
+            reason =
+                request.Reason
         });
     }
 
     // ============================================================
     // POST /api/Payroll/{id}/pay
+    //
+    // Selected employee payment.
+    //
+    // Example:
+    //
+    // {
+    //   "payrollRecordIds": [1, 2, 5]
+    // }
+    //
+    // Only selected unpaid employees are paid.
+    //
+    // If employees remain unpaid:
+    //
+    // Cycle = ApprovedByCompanyAdmin
+    // IsLocked = false
+    //
+    // When everybody is paid:
+    //
+    // Cycle = Paid
+    // IsLocked = true
     // ============================================================
 
     [HttpPost("{id:int}/pay")]
-    public async Task<IActionResult> PayPayroll(int id)
+    public async Task<IActionResult> PayPayroll(
+        int id,
+        [FromBody] PayPayrollRequest request)
     {
         if (!CanProcessPayment())
             return Forbid();
 
-        var cycle = await _db.PayrollCycles
-            .Include(x => x.PayrollRecords)
-            .FirstOrDefaultAsync(x => x.Id == id);
-
-        if (cycle == null)
-        {
-            return NotFound(new
-            {
-                message = "Payroll cycle not found."
-            });
-        }
-
-        if (!await CanViewCycleAsync(cycle))
-            return Forbid();
-
-        if (cycle.IsLocked)
+        if (request == null ||
+            request.PayrollRecordIds == null ||
+            request.PayrollRecordIds.Count == 0)
         {
             return BadRequest(new
             {
                 message =
-                    "Payroll is already locked."
+                    "Select at least one employee for payment."
             });
         }
 
-        if (cycle.Status !=
-            PayrollCycleStatus.ApprovedByCompanyAdmin)
+        var requestedIds =
+            request.PayrollRecordIds
+                .Distinct()
+                .ToHashSet();
+
+        if (requestedIds.Count == 0)
         {
             return BadRequest(new
             {
                 message =
-                    "Payroll must be approved by Company Admin before payment."
+                    "Select at least one employee for payment."
             });
         }
 
-        var currentUserId = GetCurrentUserId();
+        await using var transaction =
+            await _db.Database.BeginTransactionAsync();
 
-        cycle.Status =
-            PayrollCycleStatus.Paid;
-
-        cycle.PaidByUserId =
-            currentUserId;
-
-        cycle.PaidAtUtc =
-            DateTime.UtcNow;
-
-        cycle.IsLocked = true;
-
-        foreach (var record in cycle.PayrollRecords)
+        try
         {
-            record.Status =
-                PayrollCycleStatus.Paid;
+            var cycle =
+                await _db.PayrollCycles
+                    .Include(x => x.PayrollRecords)
+                    .FirstOrDefaultAsync(x =>
+                        x.Id == id);
 
-            record.PaidByUserId =
-                currentUserId;
+            if (cycle == null)
+            {
+                await transaction.RollbackAsync();
 
-            record.PaidAtUtc =
+                return NotFound(new
+                {
+                    message =
+                        "Payroll cycle not found."
+                });
+            }
+
+            if (!await CanViewCycleAsync(cycle))
+            {
+                await transaction.RollbackAsync();
+                return Forbid();
+            }
+
+            if (cycle.IsLocked)
+            {
+                await transaction.RollbackAsync();
+
+                return BadRequest(new
+                {
+                    message =
+                        "Payroll is already fully paid and locked."
+                });
+            }
+
+            if (cycle.Status !=
+                PayrollCycleStatus.ApprovedByCompanyAdmin)
+            {
+                await transaction.RollbackAsync();
+
+                return BadRequest(new
+                {
+                    message =
+                        "Payroll must be approved by Company Admin before payment."
+                });
+            }
+
+            // ----------------------------------------------------
+            // Find selected records
+            // ----------------------------------------------------
+
+            var selectedRecords =
+                cycle.PayrollRecords
+                    .Where(x =>
+                        requestedIds.Contains(x.Id))
+                    .ToList();
+
+            if (selectedRecords.Count == 0)
+            {
+                await transaction.RollbackAsync();
+
+                return BadRequest(new
+                {
+                    message =
+                        "None of the selected employees belong to this payroll cycle."
+                });
+            }
+
+            // ----------------------------------------------------
+            // Branch security
+            // ----------------------------------------------------
+
+            var effectiveBranchId =
+                await GetEffectiveBranchId(null);
+
+            if (effectiveBranchId.HasValue)
+            {
+                var selectedUserIds =
+                    selectedRecords
+                        .Select(x => x.UserId)
+                        .Distinct()
+                        .ToList();
+
+                var allowedUserIds =
+                    await _db.Users
+                        .AsNoTracking()
+                        .Where(x =>
+                            selectedUserIds.Contains(x.Id) &&
+                            x.BranchId ==
+                                effectiveBranchId.Value)
+                        .Select(x => x.Id)
+                        .ToListAsync();
+
+                var allowedSet =
+                    allowedUserIds.ToHashSet();
+
+                var unauthorizedRecord =
+                    selectedRecords.FirstOrDefault(x =>
+                        !allowedSet.Contains(x.UserId));
+
+                if (unauthorizedRecord != null)
+                {
+                    await transaction.RollbackAsync();
+                    return Forbid();
+                }
+            }
+
+            // ----------------------------------------------------
+            // Only approved + unpaid + unlocked records
+            // ----------------------------------------------------
+
+            var payableRecords =
+                selectedRecords
+                    .Where(x =>
+                        x.Status ==
+                            PayrollCycleStatus.ApprovedByCompanyAdmin &&
+                        x.PaymentStatus ==
+                            PayrollPaymentStatus.Unpaid &&
+                        !x.IsLocked)
+                    .ToList();
+
+            if (payableRecords.Count == 0)
+            {
+                await transaction.RollbackAsync();
+
+                return BadRequest(new
+                {
+                    message =
+                        "All selected employees have already been paid or are not eligible for payment."
+                });
+            }
+
+            var currentUserId =
+                GetCurrentUserId();
+
+            if (!currentUserId.HasValue)
+            {
+                await transaction.RollbackAsync();
+                return Unauthorized();
+            }
+
+            var paidAt =
                 DateTime.UtcNow;
 
-            record.IsLocked = true;
+            // ----------------------------------------------------
+            // Mark selected employees as Paid
+            // ----------------------------------------------------
+
+            foreach (var record in payableRecords)
+            {
+                record.PaymentStatus =
+                    PayrollPaymentStatus.Paid;
+
+                record.PaidByUserId =
+                    currentUserId.Value;
+
+                record.PaidAtUtc =
+                    paidAt;
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * Do NOT lock individual records yet.
+                 *
+                 * The entire payroll is locked only when every
+                 * employee has been paid.
+                 */
+                record.IsLocked = false;
+            }
+
+            // ----------------------------------------------------
+            // Check whether ALL employees are paid
+            // ----------------------------------------------------
+
+            var allRecordsPaid =
+                cycle.PayrollRecords.Count > 0 &&
+                cycle.PayrollRecords.All(x =>
+                    x.PaymentStatus ==
+                    PayrollPaymentStatus.Paid);
+
+            if (allRecordsPaid)
+            {
+                // =================================================
+                // FINAL PAYMENT
+                // =================================================
+
+                cycle.Status =
+                    PayrollCycleStatus.Paid;
+
+                cycle.PaidByUserId =
+                    currentUserId.Value;
+
+                cycle.PaidAtUtc =
+                    paidAt;
+
+                cycle.IsLocked = true;
+
+                foreach (var record in cycle.PayrollRecords)
+                {
+                    record.Status =
+                        PayrollCycleStatus.Paid;
+
+                    record.IsLocked = true;
+                }
+            }
+            else
+            {
+                // =================================================
+                // PARTIAL PAYMENT
+                // =================================================
+
+                cycle.Status =
+                    PayrollCycleStatus.ApprovedByCompanyAdmin;
+
+                cycle.IsLocked = false;
+
+                /*
+                 * Do not set PaidByUserId/PaidAtUtc on the cycle
+                 * during partial payment.
+                 *
+                 * Those fields represent final cycle completion.
+                 */
+            }
+
+            await _db.SaveChangesAsync();
+
+            await transaction.CommitAsync();
+
+            var paidCount =
+                cycle.PayrollRecords.Count(x =>
+                    x.PaymentStatus ==
+                    PayrollPaymentStatus.Paid);
+
+            var unpaidCount =
+                cycle.PayrollRecords.Count(x =>
+                    x.PaymentStatus ==
+                    PayrollPaymentStatus.Unpaid);
+
+            return Ok(new
+            {
+                message =
+                    allRecordsPaid
+                        ? "All payroll employees have been paid. Payroll is now permanently locked."
+                        : "Selected employees have been marked as paid.",
+
+                paidRecordIds =
+                    payableRecords
+                        .Select(x => x.Id)
+                        .ToList(),
+
+                paidCount,
+
+                unpaidCount,
+
+                totalEmployees =
+                    cycle.PayrollRecords.Count,
+
+                payrollCompleted =
+                    allRecordsPaid,
+
+                isLocked =
+                    cycle.IsLocked,
+
+                cycleStatus =
+                    cycle.Status.ToString()
+            });
         }
-
-        await _db.SaveChangesAsync();
-
-        return Ok(new
+        catch
         {
-            message =
-                "Payroll marked as paid and permanently locked."
-        });
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     // ============================================================
@@ -820,22 +1272,24 @@ public class PayrollController : ControllerBase
     [HttpGet("my-payslips")]
     public async Task<IActionResult> GetMyPayslips()
     {
-        var userId = GetCurrentUserId();
+        var userId =
+            GetCurrentUserId();
 
         if (!userId.HasValue)
             return Unauthorized();
 
-        var records = await _db.PayrollRecords
-            .AsNoTracking()
-            .Include(x => x.PayrollCycle)
-            .Where(x =>
-                x.UserId == userId.Value &&
-                x.IsLocked)
-            .OrderByDescending(x =>
-                x.PayrollCycle!.Year)
-            .ThenByDescending(x =>
-                x.PayrollCycle!.Month)
-            .ToListAsync();
+        var records =
+            await _db.PayrollRecords
+                .AsNoTracking()
+                .Include(x => x.PayrollCycle)
+                .Where(x =>
+                    x.UserId == userId.Value &&
+                    x.IsLocked)
+                .OrderByDescending(x =>
+                    x.PayrollCycle!.Year)
+                .ThenByDescending(x =>
+                    x.PayrollCycle!.Month)
+                .ToListAsync();
 
         var result =
             await BuildPayslipDtos(records);
@@ -869,71 +1323,85 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var query = _db.PayrollRecords
-            .AsNoTracking()
-            .Include(x => x.PayrollCycle)
-            .Where(x => x.IsLocked)
-            .AsQueryable();
+        var query =
+            _db.PayrollRecords
+                .AsNoTracking()
+                .Include(x => x.PayrollCycle)
+                .Where(x =>
+                    x.IsLocked)
+                .AsQueryable();
 
         if (cycleId.HasValue)
         {
             query = query.Where(x =>
-                x.PayrollCycleId == cycleId.Value);
+                x.PayrollCycleId ==
+                cycleId.Value);
         }
 
         if (userId.HasValue)
         {
             query = query.Where(x =>
-                x.UserId == userId.Value);
+                x.UserId ==
+                userId.Value);
         }
 
-        var records = await query
-            .OrderByDescending(x =>
-                x.PayrollCycle!.Year)
-            .ThenByDescending(x =>
-                x.PayrollCycle!.Month)
-            .ToListAsync();
+        var records =
+            await query
+                .OrderByDescending(x =>
+                    x.PayrollCycle!.Year)
+                .ThenByDescending(x =>
+                    x.PayrollCycle!.Month)
+                .ToListAsync();
 
-        var userIds = records
-            .Select(x => x.UserId)
-            .Distinct()
-            .ToList();
+        var userIds =
+            records
+                .Select(x => x.UserId)
+                .Distinct()
+                .ToList();
 
-        var usersQuery = _db.Users
-            .AsNoTracking()
-            .Where(x =>
-                userIds.Contains(x.Id));
+        var usersQuery =
+            _db.Users
+                .AsNoTracking()
+                .Where(x =>
+                    userIds.Contains(x.Id));
 
         if (effectiveBranchId.HasValue)
         {
-            usersQuery = usersQuery.Where(x =>
-                x.BranchId ==
+            usersQuery =
+                usersQuery.Where(x =>
+                    x.BranchId ==
                     effectiveBranchId.Value);
         }
 
-        var users = await usersQuery
-            .Select(x => new
-            {
-                x.Id,
-                x.EmployeeCode,
-                x.FullName,
-                x.Designation,
-                x.Department,
-                x.BranchId
-            })
-            .ToListAsync();
+        var users =
+            await usersQuery
+                .Select(x => new
+                {
+                    x.Id,
+                    x.EmployeeCode,
+                    x.FullName,
+                    x.Designation,
+                    x.Department,
+                    x.BranchId
+                })
+                .ToListAsync();
 
-        var allowedUserIds = users
-            .Select(x => x.Id)
-            .ToHashSet();
+        var allowedUserIds =
+            users
+                .Select(x => x.Id)
+                .ToHashSet();
 
-        records = records
-            .Where(x =>
-                allowedUserIds.Contains(x.UserId))
-            .ToList();
+        records =
+            records
+                .Where(x =>
+                    allowedUserIds.Contains(
+                        x.UserId))
+                .ToList();
 
         var result =
-            await BuildPayslipDtos(records, users);
+            await BuildPayslipDtos(
+                records,
+                users);
 
         return Ok(result);
     }
@@ -946,17 +1414,19 @@ public class PayrollController : ControllerBase
     public async Task<IActionResult> GetPayslip(
         int recordId)
     {
-        var record = await _db.PayrollRecords
-            .AsNoTracking()
-            .Include(x => x.PayrollCycle)
-            .FirstOrDefaultAsync(x =>
-                x.Id == recordId);
+        var record =
+            await _db.PayrollRecords
+                .AsNoTracking()
+                .Include(x => x.PayrollCycle)
+                .FirstOrDefaultAsync(x =>
+                    x.Id == recordId);
 
         if (record == null)
         {
             return NotFound(new
             {
-                message = "Payslip not found."
+                message =
+                    "Payslip not found."
             });
         }
 
@@ -972,52 +1442,60 @@ public class PayrollController : ControllerBase
         if (!await CanViewPayslipAsync(record))
             return Forbid();
 
-        var user = await _db.Users
-            .AsNoTracking()
-            .Where(x => x.Id == record.UserId)
-            .Select(x => new
-            {
-                x.Id,
-                x.EmployeeCode,
-                x.FullName,
-                x.Designation,
-                x.Department,
-                x.BranchId
-            })
-            .FirstOrDefaultAsync();
+        var user =
+            await _db.Users
+                .AsNoTracking()
+                .Where(x =>
+                    x.Id == record.UserId)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.EmployeeCode,
+                    x.FullName,
+                    x.Designation,
+                    x.Department,
+                    x.BranchId
+                })
+                .FirstOrDefaultAsync();
 
         if (user == null)
         {
             return NotFound(new
             {
-                message = "Employee not found."
+                message =
+                    "Employee not found."
             });
         }
 
-        var adjustments = await _db.PayrollAdjustments
-            .AsNoTracking()
-            .Where(x =>
-                x.PayrollCycleId ==
-                    record.PayrollCycleId &&
-                x.UserId == record.UserId &&
-                x.Status ==
-                    PayrollAdjustmentStatus.Approved)
-            .Select(x => new PayslipAdjustmentDto
-            {
-                Id = x.Id,
-                Type = x.Type.ToString(),
-                Amount = x.Amount,
-                Reason = x.Reason
-            })
-            .ToListAsync();
+        var adjustments =
+            await _db.PayrollAdjustments
+                .AsNoTracking()
+                .Where(x =>
+                    x.PayrollCycleId ==
+                        record.PayrollCycleId &&
+                    x.UserId ==
+                        record.UserId &&
+                    x.Status ==
+                        PayrollAdjustmentStatus.ApprovedByCompanyAdmin)
+                .Select(x => new PayslipAdjustmentDto
+                {
+                    Id = x.Id,
+                    Type = x.Type.ToString(),
+                    Amount = x.Amount,
+                    Reason = x.Reason
+                })
+                .ToListAsync();
 
         return Ok(new PayslipDto
         {
-            Id = record.Id,
+            Id =
+                record.Id,
+
             PayrollCycleId =
                 record.PayrollCycleId,
 
-            UserId = record.UserId,
+            UserId =
+                record.UserId,
 
             EmployeeCode =
                 user.EmployeeCode,
@@ -1035,7 +1513,8 @@ public class PayrollController : ControllerBase
                 user.BranchId,
 
             MonthYear =
-                record.PayrollCycle?.MonthYear ?? "",
+                record.PayrollCycle?.MonthYear ??
+                "",
 
             BasicSalary =
                 record.BasicSalary,
@@ -1093,10 +1572,11 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var cycle = await _db.PayrollCycles
-            .Include(x => x.PayrollRecords)
-            .FirstOrDefaultAsync(x =>
-                x.Id == cycleId);
+        var cycle =
+            await _db.PayrollCycles
+                .Include(x => x.PayrollRecords)
+                .FirstOrDefaultAsync(x =>
+                    x.Id == cycleId);
 
         if (cycle == null)
         {
@@ -1131,17 +1611,18 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var employee = await _db.Users
-            .AsNoTracking()
-            .Where(x =>
-                x.Id == request.UserId &&
-                x.IsActive)
-            .Select(x => new
-            {
-                x.Id,
-                x.BranchId
-            })
-            .FirstOrDefaultAsync();
+        var employee =
+            await _db.Users
+                .AsNoTracking()
+                .Where(x =>
+                    x.Id == request.UserId &&
+                    x.IsActive)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.BranchId
+                })
+                .FirstOrDefaultAsync();
 
         if (employee == null)
         {
@@ -1152,23 +1633,21 @@ public class PayrollController : ControllerBase
             });
         }
 
-        // --------------------------------------------------------
-        // Branch security
-        // --------------------------------------------------------
-
         var effectiveBranchId =
             await GetEffectiveBranchId(null);
 
         if (effectiveBranchId.HasValue &&
             employee.BranchId !=
-                effectiveBranchId.Value)
+            effectiveBranchId.Value)
         {
             return Forbid();
         }
 
-        var record = cycle.PayrollRecords
-            .FirstOrDefault(x =>
-                x.UserId == request.UserId);
+        var record =
+            cycle.PayrollRecords
+                .FirstOrDefault(x =>
+                    x.UserId ==
+                    request.UserId);
 
         if (record == null)
         {
@@ -1179,31 +1658,33 @@ public class PayrollController : ControllerBase
             });
         }
 
-        var adjustment = new PayrollAdjustment
-        {
-            TenantId =
-                cycle.TenantId,
+        var adjustment =
+            new PayrollAdjustment
+            {
+                TenantId =
+                    cycle.TenantId,
 
-            PayrollCycleId =
-                cycle.Id,
+                PayrollCycleId =
+                    cycle.Id,
 
-            UserId =
-                request.UserId,
+                UserId =
+                    request.UserId,
 
-            Type =
-                request.Type,
+                Type =
+                    request.Type,
 
-            Amount =
-                request.Amount,
+                Amount =
+                    request.Amount,
 
-            Reason =
-                request.Reason.Trim(),
+                Reason =
+                    request.Reason.Trim(),
 
-            Status =
-                PayrollAdjustmentStatus.PendingApproval
-        };
+                Status =
+                    PayrollAdjustmentStatus.PendingApproval
+            };
 
-        _db.PayrollAdjustments.Add(adjustment);
+        _db.PayrollAdjustments.Add(
+            adjustment);
 
         await _db.SaveChangesAsync();
 
@@ -1228,10 +1709,11 @@ public class PayrollController : ControllerBase
         if (!CanViewPayroll())
             return Forbid();
 
-        var cycle = await _db.PayrollCycles
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x =>
-                x.Id == cycleId);
+        var cycle =
+            await _db.PayrollCycles
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x =>
+                    x.Id == cycleId);
 
         if (cycle == null)
         {
@@ -1245,91 +1727,105 @@ public class PayrollController : ControllerBase
         if (!await CanViewCycleAsync(cycle))
             return Forbid();
 
-        var adjustments = await _db.PayrollAdjustments
-            .AsNoTracking()
-            .Where(x =>
-                x.PayrollCycleId == cycleId)
-            .OrderByDescending(x =>
-                x.CreatedAtUtc)
-            .Select(x => new PayrollAdjustmentDto
-            {
-                Id = x.Id,
-                PayrollCycleId =
-                    x.PayrollCycleId,
+        var adjustments =
+            await _db.PayrollAdjustments
+                .AsNoTracking()
+                .Where(x =>
+                    x.PayrollCycleId ==
+                    cycleId)
+                .OrderByDescending(x =>
+                    x.CreatedAtUtc)
+                .Select(x =>
+                    new PayrollAdjustmentDto
+                    {
+                        Id = x.Id,
 
-                UserId =
-                    x.UserId,
+                        PayrollCycleId =
+                            x.PayrollCycleId,
 
-                Type =
-                    x.Type.ToString(),
+                        UserId =
+                            x.UserId,
 
-                Amount =
-                    x.Amount,
+                        Type =
+                            x.Type.ToString(),
 
-                Reason =
-                    x.Reason,
+                        Amount =
+                            x.Amount,
 
-                Status =
-                    x.Status.ToString(),
+                        Reason =
+                            x.Reason,
 
-                ApprovedByUserId =
-                    x.ApprovedByUserId,
+                        Status =
+                            x.Status.ToString(),
 
-                ApprovedAtUtc =
-                    x.ApprovedAtUtc,
+                        ApprovedByUserId =
+                            x.ApprovedByUserId,
 
-                RejectedByUserId =
-                    x.RejectedByUserId,
+                        ApprovedAtUtc =
+                            x.ApprovedAtUtc,
 
-                RejectedAtUtc =
-                    x.RejectedAtUtc,
+                        RejectedByUserId =
+                            x.RejectedByUserId,
 
-                RejectionReason =
-                    x.RejectionReason
-            })
-            .ToListAsync();
+                        RejectedAtUtc =
+                            x.RejectedAtUtc,
 
-        var userIds = adjustments
-            .Select(x => x.UserId)
-            .Distinct()
-            .ToList();
+                        RejectionReason =
+                            x.RejectionReason
+                    })
+                .ToListAsync();
 
-        var usersQuery = _db.Users
-            .AsNoTracking()
-            .Where(x =>
-                userIds.Contains(x.Id));
+        var userIds =
+            adjustments
+                .Select(x => x.UserId)
+                .Distinct()
+                .ToList();
+
+        var usersQuery =
+            _db.Users
+                .AsNoTracking()
+                .Where(x =>
+                    userIds.Contains(x.Id));
 
         var effectiveBranchId =
             await GetEffectiveBranchId(null);
 
         if (effectiveBranchId.HasValue)
         {
-            usersQuery = usersQuery.Where(x =>
-                x.BranchId ==
+            usersQuery =
+                usersQuery.Where(x =>
+                    x.BranchId ==
                     effectiveBranchId.Value);
         }
 
-        var users = await usersQuery
-            .Select(x => new
-            {
-                x.Id,
-                x.EmployeeCode,
-                x.FullName
-            })
-            .ToListAsync();
+        var users =
+            await usersQuery
+                .Select(x => new
+                {
+                    x.Id,
+                    x.EmployeeCode,
+                    x.FullName
+                })
+                .ToListAsync();
 
         var allowedUserIds =
-            users.Select(x => x.Id).ToHashSet();
+            users
+                .Select(x => x.Id)
+                .ToHashSet();
 
-        adjustments = adjustments
-            .Where(x =>
-                allowedUserIds.Contains(x.UserId))
-            .ToList();
+        adjustments =
+            adjustments
+                .Where(x =>
+                    allowedUserIds.Contains(
+                        x.UserId))
+                .ToList();
 
         foreach (var adjustment in adjustments)
         {
-            var user = users.FirstOrDefault(x =>
-                x.Id == adjustment.UserId);
+            var user =
+                users.FirstOrDefault(x =>
+                    x.Id ==
+                    adjustment.UserId);
 
             if (user == null)
                 continue;
@@ -1354,7 +1850,9 @@ public class PayrollController : ControllerBase
     {
         if (!IsCompanyAdmin() &&
             !IsSuperAdmin())
+        {
             return Forbid();
+        }
 
         var adjustment =
             await _db.PayrollAdjustments
@@ -1408,7 +1906,7 @@ public class PayrollController : ControllerBase
         }
 
         adjustment.Status =
-            PayrollAdjustmentStatus.Approved;
+            PayrollAdjustmentStatus.ApprovedByCompanyAdmin;
 
         adjustment.ApprovedByUserId =
             GetCurrentUserId();
@@ -1439,7 +1937,9 @@ public class PayrollController : ControllerBase
     {
         if (!IsCompanyAdmin() &&
             !IsSuperAdmin())
+        {
             return Forbid();
+        }
 
         var adjustment =
             await _db.PayrollAdjustments
@@ -1566,13 +2066,16 @@ public class PayrollController : ControllerBase
             });
         }
 
+        var cycleId =
+            adjustment.PayrollCycleId;
+
         _db.PayrollAdjustments.Remove(
             adjustment);
 
         await _db.SaveChangesAsync();
 
         await RecalculatePayrollCycle(
-            adjustment.PayrollCycleId);
+            cycleId);
 
         return Ok(new
         {
@@ -1583,40 +2086,27 @@ public class PayrollController : ControllerBase
 
     // ============================================================
     // DELETE /api/Payroll/{id}
-    //
-    // Deletes an entire payroll cycle.
-    //
-    // Allowed:
-    //   SuperAdmin
-    //   CompanyAdmin
-    //   HROps
-    //
-    // Allowed statuses:
-    //   Draft
-    //   Rejected
-    //
-    // Not allowed:
-    //   SubmittedByHR
-    //   ApprovedByCompanyAdmin
-    //   Paid
-    //   Locked
     // ============================================================
 
     [HttpDelete("{id:int}")]
-    public async Task<IActionResult> DeletePayroll(int id)
+    public async Task<IActionResult> DeletePayroll(
+        int id)
     {
         if (!CanManagePayroll())
             return Forbid();
 
-        var cycle = await _db.PayrollCycles
-            .Include(x => x.PayrollRecords)
-            .FirstOrDefaultAsync(x => x.Id == id);
+        var cycle =
+            await _db.PayrollCycles
+                .Include(x => x.PayrollRecords)
+                .FirstOrDefaultAsync(x =>
+                    x.Id == id);
 
         if (cycle == null)
         {
             return NotFound(new
             {
-                message = "Payroll cycle not found."
+                message =
+                    "Payroll cycle not found."
             });
         }
 
@@ -1632,8 +2122,10 @@ public class PayrollController : ControllerBase
             });
         }
 
-        if (cycle.Status != PayrollCycleStatus.Draft &&
-            cycle.Status != PayrollCycleStatus.Rejected)
+        if (cycle.Status !=
+                PayrollCycleStatus.Draft &&
+            cycle.Status !=
+                PayrollCycleStatus.Rejected)
         {
             return BadRequest(new
             {
@@ -1642,14 +2134,12 @@ public class PayrollController : ControllerBase
             });
         }
 
-        // --------------------------------------------------------
-        // Delete adjustments belonging to this payroll
-        // --------------------------------------------------------
-
-        var adjustments = await _db.PayrollAdjustments
-            .Where(x =>
-                x.PayrollCycleId == cycle.Id)
-            .ToListAsync();
+        var adjustments =
+            await _db.PayrollAdjustments
+                .Where(x =>
+                    x.PayrollCycleId ==
+                    cycle.Id)
+                .ToListAsync();
 
         if (adjustments.Count > 0)
         {
@@ -1657,21 +2147,14 @@ public class PayrollController : ControllerBase
                 adjustments);
         }
 
-        // --------------------------------------------------------
-        // Delete payroll records
-        // --------------------------------------------------------
-
         if (cycle.PayrollRecords.Count > 0)
         {
             _db.PayrollRecords.RemoveRange(
                 cycle.PayrollRecords);
         }
 
-        // --------------------------------------------------------
-        // Delete payroll cycle
-        // --------------------------------------------------------
-
-        _db.PayrollCycles.Remove(cycle);
+        _db.PayrollCycles.Remove(
+            cycle);
 
         await _db.SaveChangesAsync();
 
@@ -1683,16 +2166,17 @@ public class PayrollController : ControllerBase
     }
 
     // ============================================================
-    // PRIVATE: Recalculate payroll
+    // PRIVATE: RECALCULATE PAYROLL
     // ============================================================
 
     private async Task RecalculatePayrollCycle(
         int cycleId)
     {
-        var cycle = await _db.PayrollCycles
-            .Include(x => x.PayrollRecords)
-            .FirstOrDefaultAsync(x =>
-                x.Id == cycleId);
+        var cycle =
+            await _db.PayrollCycles
+                .Include(x => x.PayrollRecords)
+                .FirstOrDefaultAsync(x =>
+                    x.Id == cycleId);
 
         if (cycle == null)
             return;
@@ -1704,7 +2188,7 @@ public class PayrollController : ControllerBase
                     x.PayrollCycleId ==
                         cycleId &&
                     x.Status ==
-                        PayrollAdjustmentStatus.Approved)
+                        PayrollAdjustmentStatus.ApprovedByCompanyAdmin)
                 .ToListAsync();
 
         foreach (var record in
@@ -1760,18 +2244,19 @@ public class PayrollController : ControllerBase
     }
 
     // ============================================================
-    // PRIVATE: Payslip DTO builder
+    // PRIVATE: PAYSLIP DTO BUILDER
     // ============================================================
 
     private async Task<List<PayslipDto>>
         BuildPayslipDtos(
-            List<PayrollRecord> records,
+            List<Estuscia.Domain.Entities.PayrollRecord> records,
             IEnumerable<dynamic>? suppliedUsers = null)
     {
-        var userIds = records
-            .Select(x => x.UserId)
-            .Distinct()
-            .ToList();
+        var userIds =
+            records
+                .Select(x => x.UserId)
+                .Distinct()
+                .ToList();
 
         var users =
             suppliedUsers?.ToList();
@@ -1794,9 +2279,10 @@ public class PayrollController : ControllerBase
                     })
                     .ToListAsync();
 
-            users = loadedUsers
-                .Cast<dynamic>()
-                .ToList();
+            users =
+                loadedUsers
+                    .Cast<dynamic>()
+                    .ToList();
         }
 
         var adjustments =
@@ -1809,7 +2295,7 @@ public class PayrollController : ControllerBase
                         .Contains(
                             x.PayrollCycleId) &&
                     x.Status ==
-                        PayrollAdjustmentStatus.Approved)
+                        PayrollAdjustmentStatus.ApprovedByCompanyAdmin)
                 .Select(x => new
                 {
                     x.Id,
@@ -1828,7 +2314,8 @@ public class PayrollController : ControllerBase
         {
             dynamic? user =
                 users.FirstOrDefault(x =>
-                    x.Id == record.UserId);
+                    x.Id ==
+                    record.UserId);
 
             if (user == null)
                 continue;
@@ -1843,7 +2330,8 @@ public class PayrollController : ControllerBase
                     .Select(x =>
                         new PayslipAdjustmentDto
                         {
-                            Id = x.Id,
+                            Id =
+                                x.Id,
 
                             Type =
                                 x.Type.ToString(),
@@ -1856,13 +2344,6 @@ public class PayrollController : ControllerBase
                         })
                     .ToList();
 
-            /*
-             * IMPORTANT:
-             * Use FullName.
-             *
-             * The user query selects FullName,
-             * not FirstName / LastName.
-             */
             result.Add(new PayslipDto
             {
                 Id =
@@ -1929,67 +2410,37 @@ public class PayrollController : ControllerBase
     private async Task<int?> GetEffectiveBranchId(
         int? requestedBranchId)
     {
-        /*
-         * COMPANY ADMIN
-         * --------------------------
-         * selected branch -> that branch
-         * null -> all branches
-         */
+        // COMPANY ADMIN
         if (IsCompanyAdmin())
         {
             return requestedBranchId;
         }
 
-        /*
-         * SUPER ADMIN
-         * --------------------------
-         * selected branch -> that branch
-         * null -> all branches
-         */
+        // SUPER ADMIN
         if (IsSuperAdmin())
         {
             return requestedBranchId;
         }
 
-        /*
-         * HR OPS
-         * --------------------------
-         *
-         * If HR has assigned branch:
-         *     ALWAYS use their branch.
-         *
-         * If HR has no branch:
-         *     requested branch can be used.
-         *     null = all branches.
-         */
+        // HR OPS
         if (IsHrOps())
         {
             var hrBranchId =
                 await GetCurrentUserBranchId();
 
             if (hrBranchId.HasValue)
-            {
                 return hrBranchId.Value;
-            }
 
             return requestedBranchId;
         }
 
-        /*
-         * BRANCH MANAGER
-         * --------------------------
-         * Always their own branch.
-         */
+        // BRANCH MANAGER
         if (IsBranchManager())
         {
             return await GetCurrentUserBranchId();
         }
 
-        /*
-         * Employee roles
-         * --------------------------
-         * Always their own branch.
-         */
+        // EMPLOYEE
         return await GetCurrentUserBranchId();
     }
 
@@ -2011,10 +2462,6 @@ public class PayrollController : ControllerBase
             var hrBranchId =
                 await GetCurrentUserBranchId();
 
-            /*
-             * HR without branch assignment
-             * can view tenant payroll.
-             */
             if (!hrBranchId.HasValue)
                 return true;
 
@@ -2044,7 +2491,7 @@ public class PayrollController : ControllerBase
     // ============================================================
 
     private async Task<bool> CanViewPayslipAsync(
-        PayrollRecord record)
+        Estuscia.Domain.Entities.PayrollRecord record)
     {
         if (IsSuperAdmin() ||
             IsCompanyAdmin())
@@ -2052,15 +2499,18 @@ public class PayrollController : ControllerBase
             return true;
         }
 
-        var employee = await _db.Users
-            .AsNoTracking()
-            .Where(x => x.Id == record.UserId)
-            .Select(x => new
-            {
-                x.Id,
-                x.BranchId
-            })
-            .FirstOrDefaultAsync();
+        var employee =
+            await _db.Users
+                .AsNoTracking()
+                .Where(x =>
+                    x.Id ==
+                    record.UserId)
+                .Select(x => new
+                {
+                    x.Id,
+                    x.BranchId
+                })
+                .FirstOrDefaultAsync();
 
         if (employee == null)
             return false;
@@ -2070,15 +2520,11 @@ public class PayrollController : ControllerBase
             var hrBranchId =
                 await GetCurrentUserBranchId();
 
-            /*
-             * HR without branch assignment:
-             * tenant-wide access.
-             */
             if (!hrBranchId.HasValue)
                 return true;
 
             return employee.BranchId ==
-                hrBranchId.Value;
+                   hrBranchId.Value;
         }
 
         if (IsBranchManager())
@@ -2088,7 +2534,7 @@ public class PayrollController : ControllerBase
 
             return managerBranchId.HasValue &&
                    employee.BranchId ==
-                       managerBranchId.Value;
+                   managerBranchId.Value;
         }
 
         var currentUserId =
@@ -2096,7 +2542,7 @@ public class PayrollController : ControllerBase
 
         return currentUserId.HasValue &&
                record.UserId ==
-                   currentUserId.Value;
+               currentUserId.Value;
     }
 
     // ============================================================
@@ -2110,7 +2556,8 @@ public class PayrollController : ControllerBase
         return await _db.PayrollRecords
             .AsNoTracking()
             .Where(x =>
-                x.PayrollCycleId == cycleId)
+                x.PayrollCycleId ==
+                cycleId)
             .Join(
                 _db.Users.AsNoTracking(),
                 record => record.UserId,
@@ -2256,9 +2703,9 @@ public class PayrollController : ControllerBase
 }
 
 
-// ================================================================
+// =================================================================
 // REQUEST DTOs
-// ================================================================
+// =================================================================
 
 public class GeneratePayrollRequest
 {
@@ -2270,12 +2717,30 @@ public class GeneratePayrollRequest
 }
 
 
+// -----------------------------------------------------------------
+// Pay selected payroll employees
+// -----------------------------------------------------------------
+
+public class PayPayrollRequest
+{
+    public List<int> PayrollRecordIds { get; set; } = new();
+}
+
+
+// -----------------------------------------------------------------
+// Reject payroll / adjustment
+// -----------------------------------------------------------------
+
 public class RejectPayrollRequest
 {
     public string Reason { get; set; }
         = string.Empty;
 }
 
+
+// -----------------------------------------------------------------
+// Create payroll adjustment
+// -----------------------------------------------------------------
 
 public class CreatePayrollAdjustmentRequest
 {
@@ -2291,9 +2756,9 @@ public class CreatePayrollAdjustmentRequest
 }
 
 
-// ================================================================
+// =================================================================
 // RESPONSE DTOs
-// ================================================================
+// =================================================================
 
 public class PayrollCycleDto
 {
@@ -2340,6 +2805,10 @@ public class PayrollCycleDto
     public bool IsLocked { get; set; }
 
     public int EmployeeCount { get; set; }
+
+    public int PaidEmployeeCount { get; set; }
+
+    public int UnpaidEmployeeCount { get; set; }
 }
 
 
@@ -2347,8 +2816,10 @@ public class PayrollCycleDetailsDto
     : PayrollCycleDto
 {
     public List<PayrollRecordDto> PayrollRecords
-    { get; set; }
-        = new();
+    {
+        get;
+        set;
+    } = new();
 }
 
 
@@ -2379,6 +2850,9 @@ public class PayrollRecordDto
     public decimal NetSalary { get; set; }
 
     public string Status { get; set; }
+        = string.Empty;
+
+    public string PaymentStatus { get; set; }
         = string.Empty;
 
     public bool IsLocked { get; set; }
@@ -2469,8 +2943,10 @@ public class PayslipDto
     public DateTime? PaidAtUtc { get; set; }
 
     public List<PayslipAdjustmentDto> Adjustments
-    { get; set; }
-        = new();
+    {
+        get;
+        set;
+    } = new();
 }
 
 

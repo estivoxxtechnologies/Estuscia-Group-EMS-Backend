@@ -40,6 +40,9 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<PayrollAdjustment> PayrollAdjustments =>
         Set<PayrollAdjustment>();
 
+    public DbSet<TenantCompanyProfile> TenantCompanyProfiles => 
+        Set<TenantCompanyProfile>();
+
     // ============================================================
     // PERMISSIONS
     // ============================================================
@@ -1350,6 +1353,72 @@ public class AppDbContext : DbContext, IAppDbContext
             });
         });
 
+
+        modelBuilder.Entity<TenantCompanyProfile>(entity =>
+        {
+            entity.ToTable("TenantCompanyProfiles");
+
+            entity.HasKey(x => x.Id);
+
+            entity.HasIndex(x => x.TenantId)
+                .IsUnique();
+
+            entity.Property(x => x.LegalName)
+                .HasMaxLength(250);
+
+            entity.Property(x => x.DisplayName)
+                .HasMaxLength(250);
+
+            entity.Property(x => x.LogoUrl)
+                .HasMaxLength(1000);
+
+            entity.Property(x => x.LogoFileName)
+                .HasMaxLength(250);
+
+            entity.Property(x => x.LogoContentType)
+                .HasMaxLength(100);
+
+            entity.Property(x => x.AddressLine1)
+                .HasMaxLength(300);
+
+            entity.Property(x => x.AddressLine2)
+                .HasMaxLength(300);
+
+            entity.Property(x => x.City)
+                .HasMaxLength(150);
+
+            entity.Property(x => x.State)
+                .HasMaxLength(150);
+
+            entity.Property(x => x.PostalCode)
+                .HasMaxLength(50);
+
+            entity.Property(x => x.Country)
+                .HasMaxLength(150);
+
+            entity.Property(x => x.Phone)
+                .HasMaxLength(100);
+
+            entity.Property(x => x.Email)
+                .HasMaxLength(250);
+
+            entity.Property(x => x.Website)
+                .HasMaxLength(500);
+
+            entity.Property(x => x.TaxRegistrationNumber)
+                .HasMaxLength(150);
+
+            entity.Property(x => x.CompanyRegistrationNumber)
+                .HasMaxLength(150);
+
+            entity.Property(x => x.PayslipFooterText)
+                .HasMaxLength(1000);
+
+            entity.HasOne(x => x.Tenant)
+                .WithOne()
+                .HasForeignKey<TenantCompanyProfile>(x => x.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
         // ========================================================
         // MULTI-TENANT QUERY FILTERS
         // ========================================================

@@ -3,6 +3,6 @@
 public enum PayrollAdjustmentStatus
 {
     PendingApproval = 1,
-    Approved = 2,
+    ApprovedByCompanyAdmin = 2,
     Rejected = 3
 }
