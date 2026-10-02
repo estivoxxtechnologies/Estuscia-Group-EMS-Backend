@@ -10,11 +10,19 @@ public class TenantCompanyProfile : BaseEntity, IMultiTenantEntity
 
     public string? DisplayName { get; set; }
 
+    // =========================================================
+    // COMPANY LOGO
+    // =========================================================
+
     public string? LogoUrl { get; set; }
 
     public string? LogoFileName { get; set; }
 
     public string? LogoContentType { get; set; }
+
+    // =========================================================
+    // ADDRESS
+    // =========================================================
 
     public string? AddressLine1 { get; set; }
 
@@ -28,17 +36,33 @@ public class TenantCompanyProfile : BaseEntity, IMultiTenantEntity
 
     public string? Country { get; set; }
 
+    // =========================================================
+    // CONTACT
+    // =========================================================
+
     public string? Phone { get; set; }
 
     public string? Email { get; set; }
 
     public string? Website { get; set; }
 
+    // =========================================================
+    // REGISTRATION
+    // =========================================================
+
     public string? TaxRegistrationNumber { get; set; }
 
     public string? CompanyRegistrationNumber { get; set; }
 
+    // =========================================================
+    // PAYSLIP
+    // =========================================================
+
     public string? PayslipFooterText { get; set; }
+
+    // =========================================================
+    // AUDIT
+    // =========================================================
 
     public DateTime CreatedAtUtc { get; set; }
 
@@ -47,6 +71,10 @@ public class TenantCompanyProfile : BaseEntity, IMultiTenantEntity
     public int? CreatedByUserId { get; set; }
 
     public int? UpdatedByUserId { get; set; }
+
+    // =========================================================
+    // RELATIONSHIP
+    // =========================================================
 
     public Tenant? Tenant { get; set; }
 }
