@@ -44,7 +44,7 @@ public class AttendanceController : ControllerBase
     // 16:49 -> Early
     // ============================================================
 
-    private const int GracePeriodMinutes = 10;
+    //private const int GracePeriodMinutes = 10;
 
     public AttendanceController(
         AppDbContext db,
@@ -2825,17 +2825,11 @@ public class AttendanceController : ControllerBase
     // ============================================================
 
     private static bool IsLate(
-        TimeOnly? checkInTime,
-        TimeOnly scheduledStartTime)
+    TimeOnly? checkInTime,
+    TimeOnly scheduledStartTime)
     {
-        if (!checkInTime.HasValue)
-            return false;
-
-        var graceEnd =
-            scheduledStartTime.AddMinutes(
-                GracePeriodMinutes);
-
-        return checkInTime.Value > graceEnd;
+        return checkInTime.HasValue &&
+               checkInTime.Value > scheduledStartTime;
     }
 
     // ============================================================
@@ -2852,17 +2846,11 @@ public class AttendanceController : ControllerBase
     // ============================================================
 
     private static bool IsEarlyLeaving(
-        TimeOnly? checkOutTime,
-        TimeOnly scheduledEndTime)
+    TimeOnly? checkOutTime,
+    TimeOnly scheduledEndTime)
     {
-        if (!checkOutTime.HasValue)
-            return false;
-
-        var graceStart =
-            scheduledEndTime.AddMinutes(
-                -GracePeriodMinutes);
-
-        return checkOutTime.Value < graceStart;
+        return checkOutTime.HasValue &&
+               checkOutTime.Value < scheduledEndTime;
     }
 
     // ============================================================

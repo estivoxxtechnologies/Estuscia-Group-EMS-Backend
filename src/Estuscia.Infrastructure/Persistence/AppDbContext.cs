@@ -62,6 +62,12 @@ public class AppDbContext : DbContext, IAppDbContext
         Set<CustomerReceipt>();
     public DbSet<AttendanceRecord> AttendanceRecords =>
         Set<AttendanceRecord>();
+    public DbSet<MonthlyAttendanceReport> MonthlyAttendanceReports =>
+    Set<MonthlyAttendanceReport>();
+    public DbSet<MonthlyAttendanceSummary> MonthlyAttendanceSummaries =>
+        Set<MonthlyAttendanceSummary>();
+    public DbSet<CompanyHoliday> CompanyHolidays =>
+    Set<CompanyHoliday>();
     public DbSet<LeaveRequest> LeaveRequests => Set<LeaveRequest>();
     public DbSet<InvestmentSlab> InvestmentSlabs =>
         Set<InvestmentSlab>();
@@ -1192,6 +1198,191 @@ public class AppDbContext : DbContext, IAppDbContext
                 e.Date
             });
 
+
+        // ========================================================
+        // MONTHLY ATTENDANCE REPORT
+        // ========================================================
+
+        modelBuilder.Entity<MonthlyAttendanceReport>(entity =>
+        {
+            entity.ToTable("MonthlyAttendanceReports");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Status)
+                .HasConversion<int>()
+                .IsRequired();
+
+            entity.Property(e => e.ReturnReason)
+                .HasMaxLength(2000);
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.BranchId,
+                e.Year,
+                e.Month
+            })
+            .IsUnique();
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.Status,
+                e.Year,
+                e.Month
+            });
+
+            entity.HasOne(e => e.Branch)
+                .WithMany()
+                .HasForeignKey(e => new
+                {
+                    e.TenantId,
+                    e.BranchId
+                })
+                .HasPrincipalKey(e => new
+                {
+                    e.TenantId,
+                    e.Id
+                })
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.SubmittedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.ApprovedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.ReturnedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(e => e.Employees)
+                .WithOne(e => e.Report)
+                .HasForeignKey(e => e.ReportId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+
+        modelBuilder.Entity<CompanyHoliday>(entity =>
+        {
+            entity.ToTable("CompanyHolidays");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Name)
+                .HasMaxLength(200)
+                .IsRequired();
+
+            entity.Property(x => x.Description)
+                .HasMaxLength(1000);
+
+            entity.Property(x => x.BranchId)
+                .IsRequired(false);
+
+            // Keep the existing index.
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.BranchId,
+                x.Date
+            }).IsUnique();
+
+            // BranchId = null means the holiday applies to all branches.
+            entity.HasOne(x => x.Branch)
+                .WithMany()
+                .HasForeignKey(x => new
+                {
+                    x.TenantId,
+                    x.BranchId
+                })
+                .HasPrincipalKey(x => new
+                {
+                    x.TenantId,
+                    x.Id
+                })
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<CompanyHoliday>()
+            .HasQueryFilter(x =>
+                _tenantService.IsSuperAdmin ||
+                x.TenantId == _tenantService.TenantId);
+
+
+        // ========================================================
+        // MONTHLY ATTENDANCE EMPLOYEE SNAPSHOTS
+        // ========================================================
+
+        modelBuilder.Entity<MonthlyAttendanceSummary>(entity =>
+        {
+            entity.ToTable("MonthlyAttendanceSummaries");
+
+            entity.HasKey(e => e.Id);
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.ReportId,
+                e.UserId
+            })
+            .IsUnique();
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.BranchId,
+                e.UserId
+            });
+
+            entity.Property(e => e.PresentDays)
+                .HasPrecision(10, 2);
+
+            entity.Property(e => e.ApprovedLeaveDays)
+                .HasPrecision(10, 2);
+
+            entity.Property(e => e.HalfDays)
+                .HasPrecision(10, 2);
+
+            entity.Property(e => e.AbsentDays)
+                .HasPrecision(10, 2);
+
+            entity.Property(e => e.TotalWorkedHours)
+                .HasPrecision(10, 2);
+
+            entity.Property(e => e.RequiredWorkingHours)
+                .HasPrecision(10, 2);
+
+            entity.Property(e => e.TotalShortageHours)
+                .HasPrecision(10, 2);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Branch)
+                .WithMany()
+                .HasForeignKey(e => new
+                {
+                    e.TenantId,
+                    e.BranchId
+                })
+                .HasPrincipalKey(e => new
+                {
+                    e.TenantId,
+                    e.Id
+                })
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+
         // ========================================================
         // LEAVE REQUEST
         // ========================================================
@@ -1537,6 +1728,16 @@ public class AppDbContext : DbContext, IAppDbContext
         modelBuilder.Entity<InvestmentSlab>()
             .Property(e => e.StaffIncentivePercent)
             .HasPrecision(8, 4);
+
+        modelBuilder.Entity<MonthlyAttendanceReport>()
+        .HasQueryFilter(e =>
+        _tenantService.IsSuperAdmin ||
+        e.TenantId == _tenantService.TenantId);
+
+        modelBuilder.Entity<MonthlyAttendanceSummary>()
+            .HasQueryFilter(e =>
+            _tenantService.IsSuperAdmin ||
+            e.TenantId == _tenantService.TenantId);
 
         // ========================================================
         // WORKING SCHEDULE
