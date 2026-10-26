@@ -30,4 +30,9 @@ public class MonthlyAttendanceSummary : BaseEntity, IMultiTenantEntity
     public MonthlyAttendanceReport? Report { get; set; }
     public ApplicationUser? User { get; set; }
     public TenantBranch? Branch { get; set; }
+    public int MissingAttendanceDays { get; set; }
+
+    public bool NeedsHrReview { get; set; }
+
+    public string? HrReviewNotes { get; set; }
 }

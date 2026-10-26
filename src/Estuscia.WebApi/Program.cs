@@ -45,9 +45,20 @@ builder.Services.AddScoped<IJwtTokenGenerator,
     JwtTokenGenerator>();
 builder.Services.AddScoped<IPermissionService,
     PermissionService>();
+
 builder.Services.AddScoped<
     IAuthorizationHandler,
     PermissionAuthorizationHandler>();
+
+// ============================================================
+// MONTHLY ATTENDANCE SERVICES
+// ============================================================
+
+builder.Services.AddScoped<
+    IMonthlyAttendanceService,
+    MonthlyAttendanceService>();
+
+builder.Services.AddScoped<MonthlyAttendanceLockService>();
 
 
 // ============================================================

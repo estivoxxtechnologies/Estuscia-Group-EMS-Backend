@@ -68,6 +68,8 @@ public class AppDbContext : DbContext, IAppDbContext
         Set<MonthlyAttendanceSummary>();
     public DbSet<CompanyHoliday> CompanyHolidays =>
     Set<CompanyHoliday>();
+    public DbSet<BranchWorkingDay> BranchWorkingDays =>
+    Set<BranchWorkingDay>();
     public DbSet<LeaveRequest> LeaveRequests => Set<LeaveRequest>();
     public DbSet<InvestmentSlab> InvestmentSlabs =>
         Set<InvestmentSlab>();
@@ -1361,6 +1363,9 @@ public class AppDbContext : DbContext, IAppDbContext
 
             entity.Property(e => e.TotalShortageHours)
                 .HasPrecision(10, 2);
+            entity.Property(x => x.HrReviewNotes)
+                .HasMaxLength(2000);
+
 
             entity.HasOne(e => e.User)
                 .WithMany()
@@ -1381,6 +1386,40 @@ public class AppDbContext : DbContext, IAppDbContext
                 })
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+
+        modelBuilder.Entity<BranchWorkingDay>(entity =>
+        {
+            entity.ToTable("BranchWorkingDays");
+
+            entity.HasKey(x => x.Id);
+
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.BranchId,
+                x.DayOfWeek
+            }).IsUnique();
+
+            entity.HasOne(x => x.Branch)
+                .WithMany()
+                .HasForeignKey(x => new
+                {
+                    x.TenantId,
+                    x.BranchId
+                })
+                .HasPrincipalKey(x => new
+                {
+                    x.TenantId,
+                    x.Id
+                })
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BranchWorkingDay>()
+            .HasQueryFilter(x =>
+                _tenantService.IsSuperAdmin ||
+                x.TenantId == _tenantService.TenantId);
 
 
         // ========================================================

@@ -40,7 +40,11 @@ public interface IAppDbContext
     // ============================================================
     // EMS
     // ============================================================
+    DbSet<MonthlyAttendanceReport> MonthlyAttendanceReports { get; }
+    DbSet<MonthlyAttendanceSummary> MonthlyAttendanceSummaries { get; }
 
+    DbSet<CompanyHoliday> CompanyHolidays { get; }
+    DbSet<BranchWorkingDay> BranchWorkingDays { get; }
     DbSet<DailyWorkLog> DailyWorkLogs { get; }
     DbSet<CustomerReceipt> CustomerReceipts { get; }
     DbSet<AttendanceRecord> AttendanceRecords { get; }

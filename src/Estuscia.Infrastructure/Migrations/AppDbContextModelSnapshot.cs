@@ -225,6 +225,47 @@ namespace Estuscia.Infrastructure.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("Estuscia.Domain.Entities.BranchWorkingDay", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("BranchId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("DayOfWeek")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsWorkingDay")
+                        .HasColumnType("bit");
+
+                    b.Property<int?>("TenantId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "BranchId", "DayOfWeek")
+                        .IsUnique()
+                        .HasFilter("[TenantId] IS NOT NULL");
+
+                    b.ToTable("BranchWorkingDays", (string)null);
+                });
+
             modelBuilder.Entity("Estuscia.Domain.Entities.CompanyHoliday", b =>
                 {
                     b.Property<int>("Id")
@@ -1078,7 +1119,13 @@ namespace Estuscia.Infrastructure.Migrations
                         .HasPrecision(10, 2)
                         .HasColumnType("decimal(10,2)");
 
+                    b.Property<string>("HrReviewNotes")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("LateArrivals")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MissingAttendanceDays")
                         .HasColumnType("int");
 
                     b.Property<int>("MissingCheckIns")
@@ -1086,6 +1133,9 @@ namespace Estuscia.Infrastructure.Migrations
 
                     b.Property<int>("MissingCheckOuts")
                         .HasColumnType("int");
+
+                    b.Property<bool>("NeedsHrReview")
+                        .HasColumnType("bit");
 
                     b.Property<decimal>("PresentDays")
                         .HasPrecision(10, 2)
@@ -2097,6 +2147,17 @@ namespace Estuscia.Infrastructure.Migrations
                     b.Navigation("Branch");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Estuscia.Domain.Entities.BranchWorkingDay", b =>
+                {
+                    b.HasOne("Estuscia.Domain.Entities.TenantBranch", "Branch")
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BranchId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Branch");
                 });
 
             modelBuilder.Entity("Estuscia.Domain.Entities.CompanyHoliday", b =>
