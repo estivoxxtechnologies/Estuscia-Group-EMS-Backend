@@ -2136,13 +2136,6 @@ public class AttendanceController : ControllerBase
             // CHECK-IN / CHECK-OUT
             // ----------------------------------------------------
 
-            if (!row.CheckInTime.HasValue &&
-                !row.CheckOutTime.HasValue)
-            {
-                errors.Add(
-                    "At least CheckInTime or CheckOutTime is required.");
-            }
-
             if (row.CheckInTime.HasValue &&
                 row.CheckOutTime.HasValue &&
                 row.CheckOutTime.Value <
@@ -2615,29 +2608,12 @@ public class AttendanceController : ControllerBase
             // VALIDATE TIMES
             // ====================================================
 
-            if (!row.CheckInTime.HasValue &&
-                !row.CheckOutTime.HasValue)
-            {
-                skippedCount++;
-
-                resultRows.Add(new
-                {
-                    rowNumber = 0,
-                    employeeCode,
-                    date = row.Date,
-                    attendanceId = (int?)null,
-                    status = "Skipped",
-                    message =
-                        "Check-in or check-out is required."
-                });
-
-                continue;
-            }
+            // Allow both times to be empty.
+            // The attendance will be marked as Absent during calculation.
 
             if (row.CheckInTime.HasValue &&
                 row.CheckOutTime.HasValue &&
-                row.CheckOutTime.Value <
-                row.CheckInTime.Value)
+                row.CheckOutTime.Value < row.CheckInTime.Value)
             {
                 skippedCount++;
 

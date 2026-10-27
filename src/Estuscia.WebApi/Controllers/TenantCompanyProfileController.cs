@@ -50,7 +50,7 @@ public class TenantCompanyProfileController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<TenantCompanyProfileDto>> Get()
     {
-        if (!IsCompanyAdmin())
+        if (!CanViewCompanyProfile())
             return Forbid();
 
         var tenantId = GetTenantId();
@@ -376,6 +376,18 @@ public class TenantCompanyProfileController : ControllerBase
     private bool IsCompanyAdmin()
     {
         return User.IsInRole("company_admin");
+    }
+
+    private bool CanViewCompanyProfile()
+    {
+        return User.IsInRole("super_admin")
+            || User.IsInRole("company_admin")
+            || User.IsInRole("hr_ops")
+            || User.IsInRole("branch_manager")
+            || User.IsInRole("sales_staff")
+            || User.IsInRole("developer")
+            || User.IsInRole("support_staff")
+            || User.IsInRole("knowledge_trainer");
     }
 
     // ------------------------------------------------------------
