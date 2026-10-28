@@ -1,5 +1,6 @@
 ﻿
 using System.Security.Claims;
+using Estuscia.Domain.Enums;
 using Estuscia.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -62,13 +63,14 @@ public sealed class DashboardController : ControllerBase
         if (!supportedRoles.Contains(role))
             return Forbid();
 
-        // Super Admin may select a tenant through X-Tenant-Id.
-        // Other roles cannot override their tenant.
+        // Super Admin can select a tenant through X-Tenant-Id.
         if (role == "super_admin" &&
             Request.Headers.TryGetValue("X-Tenant-Id", out var tenantHeader))
         {
-            if (!int.TryParse(tenantHeader.ToString(), out var selectedTenantId)
-                || selectedTenantId <= 0)
+            if (!int.TryParse(
+                    tenantHeader.ToString(),
+                    out var selectedTenantId) ||
+                selectedTenantId <= 0)
             {
                 return BadRequest(new
                 {
@@ -82,21 +84,19 @@ public sealed class DashboardController : ControllerBase
         if (role != "super_admin" && tenantId is null)
             return Forbid();
 
-        // Only Company Admin and HR Ops can choose a dashboard branch.
-        // Branch managers always use their assigned branch.
-        // Individual users remain restricted to their own records.
+        // Only Company Admin and HR Ops may select a branch.
+        if (branchId.HasValue &&
+            role is not ("company_admin" or "hr_ops"))
+        {
+            return Forbid();
+        }
+
         int? effectiveBranchId = role switch
         {
             "company_admin" or "hr_ops" => branchId,
             "branch_manager" => claimBranchId,
             _ => null
         };
-
-        if (branchId.HasValue &&
-            role is not ("company_admin" or "hr_ops"))
-        {
-            return Forbid();
-        }
 
         var users = _db.Users.AsNoTracking();
         var attendance = _db.AttendanceRecords.AsNoTracking();
@@ -111,45 +111,52 @@ public sealed class DashboardController : ControllerBase
         var branches = _db.TenantBranches.AsNoTracking();
         var tenants = _db.Tenants.AsNoTracking();
 
-        // Establish tenant scope first.
-        if (role != "super_admin")
+        // ----------------------------------------------------
+        // TENANT SCOPE
+        // ----------------------------------------------------
+
+        if (tenantId.HasValue)
         {
-            users = users.Where(x => x.TenantId == tenantId);
-            attendance = attendance.Where(x => x.TenantId == tenantId);
-            leaves = leaves.Where(x => x.TenantId == tenantId);
-            salaryChanges = salaryChanges.Where(x => x.TenantId == tenantId);
-            payrollCycles = payrollCycles.Where(x => x.TenantId == tenantId);
-            payrollRecords = payrollRecords.Where(x => x.TenantId == tenantId);
-            workLogs = workLogs.Where(x => x.TenantId == tenantId);
-            developerWorks = developerWorks.Where(x => x.TenantId == tenantId);
-            leadAssignments = leadAssignments.Where(x => x.TenantId == tenantId);
-            tenantPayments = tenantPayments.Where(x => x.TenantId == tenantId);
-            branches = branches.Where(x => x.TenantId == tenantId);
+            var selectedTenantId = tenantId.Value;
+
+            users = users.Where(x => x.TenantId == selectedTenantId);
+            attendance = attendance.Where(x => x.TenantId == selectedTenantId);
+            leaves = leaves.Where(x => x.TenantId == selectedTenantId);
+            salaryChanges = salaryChanges.Where(x => x.TenantId == selectedTenantId);
+            payrollCycles = payrollCycles.Where(x => x.TenantId == selectedTenantId);
+            payrollRecords = payrollRecords.Where(x => x.TenantId == selectedTenantId);
+            workLogs = workLogs.Where(x => x.TenantId == selectedTenantId);
+            developerWorks = developerWorks.Where(x => x.TenantId == selectedTenantId);
+            leadAssignments = leadAssignments.Where(x => x.TenantId == selectedTenantId);
+            tenantPayments = tenantPayments.Where(x => x.TenantId == selectedTenantId);
+            branches = branches.Where(x => x.TenantId == selectedTenantId);
         }
-        else if (tenantId is not null)
+        else if (role != "super_admin")
         {
-            users = users.Where(x => x.TenantId == tenantId);
-            attendance = attendance.Where(x => x.TenantId == tenantId);
-            leaves = leaves.Where(x => x.TenantId == tenantId);
-            salaryChanges = salaryChanges.Where(x => x.TenantId == tenantId);
-            payrollCycles = payrollCycles.Where(x => x.TenantId == tenantId);
-            payrollRecords = payrollRecords.Where(x => x.TenantId == tenantId);
-            workLogs = workLogs.Where(x => x.TenantId == tenantId);
-            developerWorks = developerWorks.Where(x => x.TenantId == tenantId);
-            leadAssignments = leadAssignments.Where(x => x.TenantId == tenantId);
-            tenantPayments = tenantPayments.Where(x => x.TenantId == tenantId);
-            branches = branches.Where(x => x.TenantId == tenantId);
+            return Forbid();
         }
 
-        // Validate the selected branch against the authenticated tenant.
-        // A branch ID from another tenant must never broaden data access.
+        // ----------------------------------------------------
+        // BRANCH SCOPE
+        // ----------------------------------------------------
+
+        if (role == "branch_manager")
+        {
+            if (claimBranchId is null || claimBranchId <= 0)
+                return Forbid();
+
+            effectiveBranchId = claimBranchId.Value;
+        }
+
         if (effectiveBranchId.HasValue)
         {
             if (tenantId is null)
                 return Forbid();
 
+            var selectedBranchId = effectiveBranchId.Value;
+
             var validBranch = await branches.AnyAsync(
-                x => x.Id == effectiveBranchId.Value,
+                x => x.Id == selectedBranchId,
                 cancellationToken);
 
             if (!validBranch)
@@ -159,184 +166,506 @@ public sealed class DashboardController : ControllerBase
                     message = "The selected branch is invalid or is outside your tenant."
                 });
             }
-        }
 
-        // Apply branch scope to every branch-aware dashboard query.
-        if (effectiveBranchId.HasValue)
-        {
-            var selected = effectiveBranchId.Value;
+            users = users.Where(x => x.BranchId == selectedBranchId);
+            attendance = attendance.Where(x => x.BranchId == selectedBranchId);
+            leaves = leaves.Where(x => x.BranchId == selectedBranchId);
+            salaryChanges = salaryChanges.Where(x => x.BranchId == selectedBranchId);
+            workLogs = workLogs.Where(x => x.BranchId == selectedBranchId);
+            developerWorks = developerWorks.Where(x => x.BranchId == selectedBranchId);
+            leadAssignments = leadAssignments.Where(x => x.BranchId == selectedBranchId);
+            branches = branches.Where(x => x.Id == selectedBranchId);
 
-            users = users.Where(x => x.BranchId == selected);
-            attendance = attendance.Where(x => x.BranchId == selected);
-            leaves = leaves.Where(x => x.BranchId == selected);
-            salaryChanges = salaryChanges.Where(x => x.BranchId == selected);
-            workLogs = workLogs.Where(x => x.BranchId == selected);
-            developerWorks = developerWorks.Where(x => x.BranchId == selected);
-            leadAssignments = leadAssignments.Where(x => x.BranchId == selected);
+            // Payroll records are scoped through their employees.
+            var branchUserIds = users.Select(x => x.Id);
 
-            // Payroll records are scoped to users belonging to the selected
-            // branch, avoiding a dependency on a PayrollRecord.BranchId column.
-            var selectedBranchUserIds = users.Select(x => x.Id);
             payrollRecords = payrollRecords.Where(
-                x => selectedBranchUserIds.Contains(x.UserId));
+                x => branchUserIds.Contains(x.UserId));
+
+            payrollCycles = payrollCycles.Where(
+                x => payrollRecords.Any(r => r.PayrollCycleId == x.Id));
         }
 
-        // Branch managers cannot change their scope using query parameters.
-        if (role == "branch_manager")
+        // ----------------------------------------------------
+        // INDIVIDUAL USER SCOPE
+        // ----------------------------------------------------
+
+        var isIndividual = role is
+            "sales_staff" or
+            "developer" or
+            "support_staff" or
+            "knowledge_trainer";
+
+        if (isIndividual)
         {
-            if (claimBranchId is null)
-                return Forbid();
+            var currentUserId = userId.Value;
 
-            var selected = claimBranchId.Value;
+            users = users.Where(x => x.Id == currentUserId);
+            attendance = attendance.Where(x => x.UserId == currentUserId);
+            leaves = leaves.Where(x => x.UserId == currentUserId);
+            salaryChanges = salaryChanges.Where(x => x.UserId == currentUserId);
+            payrollRecords = payrollRecords.Where(x => x.UserId == currentUserId);
+            workLogs = workLogs.Where(x => x.UserId == currentUserId);
 
-            users = users.Where(x => x.BranchId == selected);
-            attendance = attendance.Where(x => x.BranchId == selected);
-            leaves = leaves.Where(x => x.BranchId == selected);
-            salaryChanges = salaryChanges.Where(x => x.BranchId == selected);
-            workLogs = workLogs.Where(x => x.BranchId == selected);
-            developerWorks = developerWorks.Where(x => x.BranchId == selected);
-            leadAssignments = leadAssignments.Where(x => x.BranchId == selected);
-            branches = branches.Where(x => x.Id == selected);
+            // Keep ownership filtering for developer tasks and lead
+            // assignments unchanged until their owner fields are confirmed.
         }
 
-        // Individual users only see their own records.
-        if (role is "sales_staff" or "developer"
-            or "support_staff" or "knowledge_trainer")
-        {
-            users = users.Where(x => x.Id == userId);
-            attendance = attendance.Where(x => x.UserId == userId);
-            leaves = leaves.Where(x => x.UserId == userId);
-            salaryChanges = salaryChanges.Where(x => x.UserId == userId);
-            payrollRecords = payrollRecords.Where(x => x.UserId == userId);
-            workLogs = workLogs.Where(x => x.UserId == userId);
-        }
-
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var now = DateTime.UtcNow;
+        var today = DateOnly.FromDateTime(now);
 
         var monthStart = new DateTime(
             today.Year, today.Month, 1, 0, 0, 0, DateTimeKind.Utc);
 
         var nextMonth = monthStart.AddMonths(1);
+        var monthStartDate = new DateOnly(today.Year, today.Month, 1);
+        var nextMonthDate = monthStartDate.AddMonths(1);
+        var trendStart = monthStartDate.AddMonths(-5);
 
-        var trendStart = new DateOnly(today.Year, today.Month, 1)
-            .AddMonths(-5);
-
-        var attendanceTrendEnd = DateOnly.FromDateTime(nextMonth);
+        // ----------------------------------------------------
+        // MAIN KPIs
+        // ----------------------------------------------------
 
         var activeUsers = await users.CountAsync(
-            x => x.IsActive, cancellationToken);
+            x => x.IsActive,
+            cancellationToken);
 
         var branchCount = await branches.CountAsync(
-            x => x.IsActive, cancellationToken);
+            x => x.IsActive,
+            cancellationToken);
 
         var todayAttendance = attendance.Where(x => x.Date == today);
 
-        var attendanceTodayCount = await todayAttendance.CountAsync(
-            cancellationToken);
-
-        var attendanceStatus = await todayAttendance
-            .GroupBy(x => x.Status)
-            .Select(g => new
+        var attendanceRows = await todayAttendance
+            .OrderBy(x => x.User.FullName)
+            .Select(x => new
             {
-                status = g.Key.ToString(),
-                count = g.Count()
+                x.UserId,
+                employeeName = x.User.FullName,
+                employeeCode = x.User.EmployeeCode,
+                x.BranchId,
+                x.Date,
+                x.CheckInTime,
+                x.CheckOutTime,
+                x.WorkedHours,
+                savedStatus = x.Status,
+
+                branchStandardHours = x.Branch.StandardWorkingHours,
+                branchStart = x.Branch.WorkStartTime,
+                branchEnd = x.Branch.WorkEndTime,
+
+                tenantStandardHours = x.Branch.Tenant.StandardWorkingHours,
+                tenantStart = x.Branch.Tenant.WorkStartTime,
+                tenantEnd = x.Branch.Tenant.WorkEndTime
             })
             .ToListAsync(cancellationToken);
 
-        var leaveStatus = await leaves
-            .GroupBy(x => x.Status)
-            .Select(g => new
+        var todayAttendanceDetails = attendanceRows
+            .Select(x =>
             {
-                status = g.Key.ToString(),
-                count = g.Count()
-            })
-            .ToListAsync(cancellationToken);
+                var schedule = ResolveSchedule(
+                    x.branchStandardHours,
+                    x.branchStart,
+                    x.branchEnd,
+                    x.tenantStandardHours,
+                    x.tenantStart,
+                    x.tenantEnd);
 
-        var salaryChangeStatus = await salaryChanges
-            .GroupBy(x => x.Status)
-            .Select(g => new
-            {
-                status = g.Key.ToString(),
-                count = g.Count()
-            })
-            .ToListAsync(cancellationToken);
+                var workedHours = CalculateWorkedHours(
+                    x.CheckInTime,
+                    x.CheckOutTime,
+                    x.WorkedHours);
 
-        var payrollStatus = await payrollCycles
-            .GroupBy(x => x.Status)
-            .Select(g => new
-            {
-                status = g.Key.ToString(),
-                count = g.Count()
-            })
-            .ToListAsync(cancellationToken);
+                var isLate = x.CheckInTime.HasValue &&
+                             x.CheckInTime.Value > schedule.Start;
 
-        var monthlyAttendance = await attendance
-            .Where(x => x.Date >= trendStart &&
-                        x.Date < attendanceTrendEnd)
-            .GroupBy(x => new { x.Date.Year, x.Date.Month })
-            .Select(g => new
-            {
-                year = g.Key.Year,
-                month = g.Key.Month,
-                records = g.Count(),
-                workedHours = g.Sum(x => x.WorkedHours)
-            })
-            .OrderBy(x => x.year)
-            .ThenBy(x => x.month)
-            .ToListAsync(cancellationToken);
+                var isEarlyLeaving = x.CheckOutTime.HasValue &&
+                                     x.CheckOutTime.Value < schedule.End;
 
-        // Payroll cycles are currently tenant-scoped. If PayrollCycle has no
-        // branch relationship, its totals cannot be accurately split by branch.
-        var monthlyPayroll = await payrollCycles
+                var isHalfDay = x.CheckInTime.HasValue &&
+                                x.CheckOutTime.HasValue &&
+                                workedHours < schedule.RequiredHours / 2m;
+
+                // IMPORTANT:
+                // Do not preserve a saved Absent status if the employee
+                // actually has a check-in. Recalculate using the times.
+                // Approved leave remains OnLeave.
+                var effectiveStatus = x.savedStatus switch
+                {
+                    AttendanceStatus.OnLeave =>
+                        AttendanceStatus.OnLeave,
+
+                    _ when !x.CheckInTime.HasValue =>
+                        AttendanceStatus.Absent,
+
+                    _ when isHalfDay =>
+                        AttendanceStatus.HalfDay,
+
+                    _ when isLate =>
+                        AttendanceStatus.Late,
+
+                    _ =>
+                        AttendanceStatus.Present
+                };
+
+                return new
+                {
+                    userId = x.UserId,
+                    x.employeeName,
+                    x.employeeCode,
+                    branchId = (int?)x.BranchId,
+                    date = x.Date,
+                    checkInTime = x.CheckInTime?.ToString("HH:mm"),
+                    checkOutTime = x.CheckOutTime?.ToString("HH:mm"),
+                    workedHours,
+                    requiredHours = schedule.RequiredHours,
+                    scheduledStartTime = schedule.Start.ToString("HH:mm"),
+                    scheduledEndTime = schedule.End.ToString("HH:mm"),
+                    status = effectiveStatus.ToString(),
+                    isLate,
+                    isHalfDay,
+                    isEarlyLeaving
+                };
+            })
+            .ToList();
+
+        var attendanceTodayCount = todayAttendanceDetails.Count;
+
+        var employeesPresentToday = todayAttendanceDetails
             .Where(x =>
-                x.Year * 100 + x.Month >= trendStart.Year * 100 + trendStart.Month &&
-                x.Year * 100 + x.Month < nextMonth.Year * 100 + nextMonth.Month)
-            .GroupBy(x => new { x.Year, x.Month })
+                x.status == AttendanceStatus.Present.ToString() ||
+                x.status == AttendanceStatus.Late.ToString() ||
+                x.status == AttendanceStatus.HalfDay.ToString())
+            .Select(x => x.userId)
+            .Distinct()
+            .Count();
+
+        var recordedAbsencesToday = todayAttendanceDetails
+            .Where(x => x.status == AttendanceStatus.Absent.ToString())
+            .Select(x => x.userId)
+            .Distinct()
+            .Count();
+
+        var attendanceStatus = todayAttendanceDetails
+            .GroupBy(x => x.status)
             .Select(g => new
             {
-                year = g.Key.Year,
-                month = g.Key.Month,
-                netSalary = g.Sum(x => x.TotalNetSalary),
-                bonus = g.Sum(x => x.TotalBonus),
-                deductions = g.Sum(x => x.TotalDeduction)
+                status = g.Key,
+                count = g.Count()
             })
-            .OrderBy(x => x.year)
-            .ThenBy(x => x.month)
-            .ToListAsync(cancellationToken);
+            .ToList();
 
-        var monthPayrollRecords = payrollRecords.Where(
+        // ----------------------------------------------------
+        // LEAVE REQUESTS
+        // ----------------------------------------------------
+
+        var monthlyLeaves = leaves.Where(
             x => x.CreatedAtUtc >= monthStart &&
                  x.CreatedAtUtc < nextMonth);
 
-        var pendingSalaryChanges = await salaryChanges.CountAsync(
-            x => x.Status == 0, cancellationToken);
-
-        var overdueDeveloperTasks = await developerWorks.CountAsync(
-            x => x.DueDateUtc < DateTime.UtcNow && x.Status != 0,
+        var leaveRequests = await monthlyLeaves.CountAsync(
             cancellationToken);
 
-        var developerTaskStatus = await developerWorks
+        var leaveStatusRows = await monthlyLeaves
             .GroupBy(x => x.Status)
             .Select(g => new
             {
-                status = g.Key.ToString(),
+                status = g.Key,
                 count = g.Count()
             })
             .ToListAsync(cancellationToken);
 
-        var developerTaskPriority = await developerWorks
+        var leaveStatus = leaveStatusRows
+            .Select(x => new
+            {
+                status = x.status.ToString(),
+                x.count
+            })
+            .ToList();
+
+        var recentLeaveRows = await monthlyLeaves
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(10)
+            .Select(x => new
+            {
+                x.Id,
+                x.UserId,
+                employeeName = x.User.FullName,
+                employeeCode = x.User.EmployeeCode,
+                x.LeaveType,
+                x.StartDate,
+                x.EndDate,
+                x.RequestedDays,
+                x.Reason,
+                x.Status,
+                x.CreatedAtUtc
+            })
+            .ToListAsync(cancellationToken);
+
+        var recentLeaveRequests = recentLeaveRows
+            .Select(x => new
+            {
+                x.Id,
+                x.UserId,
+                x.employeeName,
+                x.employeeCode,
+                leaveType = x.LeaveType.ToString(),
+                x.StartDate,
+                x.EndDate,
+                x.RequestedDays,
+                x.Reason,
+                status = x.Status.ToString(),
+                x.CreatedAtUtc
+            })
+            .ToList();
+
+        // ----------------------------------------------------
+        // SALARY CHANGE STATUS
+        // ----------------------------------------------------
+
+        var salaryChangeStatusRows = await salaryChanges
+            .GroupBy(x => x.Status)
+            .Select(g => new
+            {
+                status = g.Key,
+                count = g.Count()
+            })
+            .ToListAsync(cancellationToken);
+
+        var salaryChangeStatus = salaryChangeStatusRows
+            .Select(x => new
+            {
+                status = x.status.ToString(),
+                x.count
+            })
+            .ToList();
+
+        var pendingSalaryChanges = salaryChangeStatusRows
+            .Where(x => x.status == SalaryChangeStatus.PendingApproval)
+            .Sum(x => x.count);
+
+        // ----------------------------------------------------
+        // PAYROLL CYCLE STATUS
+        // ----------------------------------------------------
+
+        var payrollStatusRows = await payrollCycles
+            .GroupBy(x => x.Status)
+            .Select(g => new
+            {
+                status = g.Key,
+                count = g.Count()
+            })
+            .ToListAsync(cancellationToken);
+
+        var payrollStatus = payrollStatusRows
+            .Select(x => new
+            {
+                status = x.status.ToString(),
+                x.count
+            })
+            .ToList();
+
+        // ----------------------------------------------------
+        // MONTHLY ATTENDANCE CHART
+        // Historical chart remains based on saved record statuses.
+        // Today's status above is recalculated from actual time values.
+        // ----------------------------------------------------
+
+        var monthlyAttendanceGroups = await attendance
+            .Where(x => x.Date >= trendStart && x.Date < nextMonthDate)
+            .GroupBy(x => new
+            {
+                x.Date.Year,
+                x.Date.Month,
+                x.Status
+            })
+            .Select(g => new
+            {
+                g.Key.Year,
+                g.Key.Month,
+                g.Key.Status,
+                records = g.Count(),
+                workedHours = g.Sum(x => x.WorkedHours)
+            })
+            .ToListAsync(cancellationToken);
+
+        var monthlyAttendance = monthlyAttendanceGroups
+            .GroupBy(x => new { x.Year, x.Month })
+            .OrderBy(g => g.Key.Year)
+            .ThenBy(g => g.Key.Month)
+            .Select(g => new
+            {
+                year = g.Key.Year,
+                month = g.Key.Month,
+                records = g.Sum(x => x.records),
+                workedHours = g.Sum(x => x.workedHours),
+                present = g.Where(x => x.Status == AttendanceStatus.Present)
+                    .Sum(x => x.records),
+                late = g.Where(x => x.Status == AttendanceStatus.Late)
+                    .Sum(x => x.records),
+                absent = g.Where(x => x.Status == AttendanceStatus.Absent)
+                    .Sum(x => x.records),
+                halfDay = g.Where(x => x.Status == AttendanceStatus.HalfDay)
+                    .Sum(x => x.records),
+                onLeave = g.Where(x => x.Status == AttendanceStatus.OnLeave)
+                    .Sum(x => x.records)
+            })
+            .ToList();
+
+        // ----------------------------------------------------
+        // PAYROLL SUMMARY
+        // ----------------------------------------------------
+
+        var currentMonthPayroll = payrollRecords.Where(
+            x => x.PayrollCycle != null &&
+                 x.PayrollCycle.Year == today.Year &&
+                 x.PayrollCycle.Month == today.Month);
+
+        var payrollSummaryRows = await currentMonthPayroll
+            .GroupBy(x => x.PaymentStatus)
+            .Select(g => new
+            {
+                status = g.Key,
+                amount = g.Sum(x => x.NetSalary),
+                employees = g.Select(x => x.UserId).Distinct().Count()
+            })
+            .ToListAsync(cancellationToken);
+
+        var paidAmount = payrollSummaryRows
+            .Where(x => x.status == PayrollPaymentStatus.Paid)
+            .Sum(x => x.amount);
+
+        var unpaidAmount = payrollSummaryRows
+            .Where(x => x.status == PayrollPaymentStatus.Unpaid)
+            .Sum(x => x.amount);
+
+        var paidEmployees = await currentMonthPayroll
+            .Where(x => x.PaymentStatus == PayrollPaymentStatus.Paid)
+            .Select(x => x.UserId)
+            .Distinct()
+            .CountAsync(cancellationToken);
+
+        var unpaidEmployees = await currentMonthPayroll
+            .Where(x => x.PaymentStatus == PayrollPaymentStatus.Unpaid)
+            .Select(x => x.UserId)
+            .Distinct()
+            .CountAsync(cancellationToken);
+
+        var totalPayrollEmployees = await currentMonthPayroll
+            .Select(x => x.UserId)
+            .Distinct()
+            .CountAsync(cancellationToken);
+
+        var totalNetSalary = paidAmount + unpaidAmount;
+
+        var monthlyPayrollRows = await payrollRecords
+            .Where(x =>
+                x.PayrollCycle != null &&
+                (x.PayrollCycle.Year * 100 + x.PayrollCycle.Month) >=
+                    (trendStart.Year * 100 + trendStart.Month) &&
+                (x.PayrollCycle.Year * 100 + x.PayrollCycle.Month) <
+                    (nextMonthDate.Year * 100 + nextMonthDate.Month))
+            .GroupBy(x => new
+            {
+                x.PayrollCycle!.Year,
+                x.PayrollCycle.Month,
+                x.PaymentStatus
+            })
+            .Select(g => new
+            {
+                g.Key.Year,
+                g.Key.Month,
+                g.Key.PaymentStatus,
+                amount = g.Sum(x => x.NetSalary),
+                bonus = g.Sum(x => x.TotalBonus),
+                deductions = g.Sum(x => x.TotalDeduction),
+                employees = g.Select(x => x.UserId).Distinct().Count()
+            })
+            .ToListAsync(cancellationToken);
+
+        var monthlyPayroll = monthlyPayrollRows
+            .GroupBy(x => new { x.Year, x.Month })
+            .OrderBy(g => g.Key.Year)
+            .ThenBy(g => g.Key.Month)
+            .Select(g => new
+            {
+                year = g.Key.Year,
+                month = g.Key.Month,
+                netSalary = g.Sum(x => x.amount),
+                bonus = g.Sum(x => x.bonus),
+                deductions = g.Sum(x => x.deductions),
+                paidAmount = g
+                    .Where(x => x.PaymentStatus == PayrollPaymentStatus.Paid)
+                    .Sum(x => x.amount),
+                unpaidAmount = g
+                    .Where(x => x.PaymentStatus == PayrollPaymentStatus.Unpaid)
+                    .Sum(x => x.amount),
+                paidEmployees = g
+                    .Where(x => x.PaymentStatus == PayrollPaymentStatus.Paid)
+                    .Sum(x => x.employees),
+                unpaidEmployees = g
+                    .Where(x => x.PaymentStatus == PayrollPaymentStatus.Unpaid)
+                    .Sum(x => x.employees)
+            })
+            .ToList();
+
+        var payrollRecordsThisMonth = await currentMonthPayroll.CountAsync(
+            cancellationToken);
+
+        // ----------------------------------------------------
+        // DEVELOPER TASKS
+        // ----------------------------------------------------
+
+        var overdueDeveloperTasks = await developerWorks.CountAsync(
+            x => x.DueDateUtc < now && x.Status != 0,
+            cancellationToken);
+
+        var developerTaskStatusRows = await developerWorks
+            .GroupBy(x => x.Status)
+            .Select(g => new
+            {
+                status = g.Key,
+                count = g.Count()
+            })
+            .ToListAsync(cancellationToken);
+
+        var developerTaskStatus = developerTaskStatusRows
+            .Select(x => new
+            {
+                status = x.status.ToString(),
+                x.count
+            })
+            .ToList();
+
+        var developerTaskPriorityRows = await developerWorks
             .GroupBy(x => x.Priority)
             .Select(g => new
             {
-                priority = g.Key.ToString(),
+                priority = g.Key,
                 count = g.Count()
             })
             .ToListAsync(cancellationToken);
 
+        var developerTaskPriority = developerTaskPriorityRows
+            .Select(x => new
+            {
+                status = x.priority.ToString(),
+                x.count
+            })
+            .ToList();
+
+        // ----------------------------------------------------
+        // MONTHLY WORK LOGS
+        // ----------------------------------------------------
+
         var monthlyWorkLogs = await workLogs
             .Where(x => x.WorkDate >= trendStart &&
-                        x.WorkDate < attendanceTrendEnd)
-            .GroupBy(x => new { x.WorkDate.Year, x.WorkDate.Month })
+                        x.WorkDate < nextMonthDate)
+            .GroupBy(x => new
+            {
+                x.WorkDate.Year,
+                x.WorkDate.Month
+            })
             .Select(g => new
             {
                 year = g.Key.Year,
@@ -348,21 +677,31 @@ public sealed class DashboardController : ControllerBase
             .ThenBy(x => x.month)
             .ToListAsync(cancellationToken);
 
+        // ----------------------------------------------------
+        // SUPER ADMIN OVERVIEW
+        // ----------------------------------------------------
+
         object? superAdminData = null;
 
         if (role == "super_admin")
         {
             var tenantQuery = tenants.AsNoTracking();
 
-            if (tenantId is not null)
-                tenantQuery = tenantQuery.Where(x => x.Id == tenantId);
+            if (tenantId.HasValue)
+            {
+                var selectedTenantId = tenantId.Value;
+                tenantQuery = tenantQuery.Where(
+                    x => x.Id == selectedTenantId);
+            }
 
-            var tenantCount = await tenantQuery.CountAsync(cancellationToken);
+            var tenantCount = await tenantQuery.CountAsync(
+                cancellationToken);
 
             var activeTenantCount = await tenantQuery.CountAsync(
-                x => x.IsActive, cancellationToken);
+                x => x.IsActive,
+                cancellationToken);
 
-            var paymentStatus = await tenantPayments
+            var paymentStatusRows = await tenantPayments
                 .GroupBy(x => x.PaymentStatus)
                 .Select(g => new
                 {
@@ -370,6 +709,14 @@ public sealed class DashboardController : ControllerBase
                     count = g.Count()
                 })
                 .ToListAsync(cancellationToken);
+
+            var paymentStatus = paymentStatusRows
+                .Select(x => new
+                {
+                    status = x.status.ToString(),
+                    x.count
+                })
+                .ToList();
 
             superAdminData = new
             {
@@ -379,28 +726,49 @@ public sealed class DashboardController : ControllerBase
             };
         }
 
+        // ----------------------------------------------------
+        // RESPONSE
+        // ----------------------------------------------------
+
         return Ok(new
         {
             role,
-            generatedAtUtc = DateTime.UtcNow,
+            generatedAtUtc = now,
+
             period = new
             {
                 today,
                 monthStart,
                 nextMonth
             },
+
             kpis = new
             {
                 activeUsers,
                 activeBranches = branchCount,
                 attendanceRecordsToday = attendanceTodayCount,
-                leaveRequests = leaveStatus.Sum(x => x.count),
+                employeesPresentToday,
+                recordedAbsencesToday,
+                leaveRequests,
                 payrollCycles = payrollStatus.Sum(x => x.count),
-                payrollRecordsThisMonth = await monthPayrollRecords.CountAsync(
-                    cancellationToken),
+                payrollRecordsThisMonth,
                 pendingSalaryChanges,
                 overdueDeveloperTasks
             },
+
+            payrollSummary = new
+            {
+                totalNetSalary,
+                paidAmount,
+                unpaidAmount,
+                paidEmployees,
+                unpaidEmployees,
+                totalEmployees = totalPayrollEmployees
+            },
+
+            todayAttendance = todayAttendanceDetails,
+            recentLeaveRequests,
+
             charts = new
             {
                 attendanceStatus,
@@ -413,8 +781,60 @@ public sealed class DashboardController : ControllerBase
                 developerTaskPriority,
                 monthlyWorkLogs
             },
+
             superAdmin = superAdminData
         });
+    }
+
+    private static decimal CalculateWorkedHours(
+        TimeOnly? checkIn,
+        TimeOnly? checkOut,
+        decimal storedWorkedHours)
+    {
+        if (!checkIn.HasValue || !checkOut.HasValue)
+            return storedWorkedHours;
+
+        var start = checkIn.Value;
+        var end = checkOut.Value;
+
+        var minutes = end >= start
+            ? (end - start).TotalMinutes
+            : (end.AddHours(24) - start).TotalMinutes;
+
+        return Math.Round(
+            (decimal)(minutes / 60d),
+            2,
+            MidpointRounding.AwayFromZero);
+    }
+
+    private static (
+        decimal RequiredHours,
+        TimeOnly Start,
+        TimeOnly End
+    ) ResolveSchedule(
+        decimal? branchHours,
+        TimeOnly? branchStart,
+        TimeOnly? branchEnd,
+        decimal? tenantHours,
+        TimeOnly? tenantStart,
+        TimeOnly? tenantEnd)
+    {
+        var requiredHours =
+            branchHours.GetValueOrDefault() > 0
+                ? branchHours.Value
+                : tenantHours.GetValueOrDefault() > 0
+                    ? tenantHours.Value
+                    : 8m;
+
+        var start = branchStart
+            ?? tenantStart
+            ?? new TimeOnly(9, 0);
+
+        var end = branchEnd
+            ?? tenantEnd
+            ?? new TimeOnly(17, 0);
+
+        return (requiredHours, start, end);
     }
 
     private int? GetClaimInt(params string[] claimTypes)

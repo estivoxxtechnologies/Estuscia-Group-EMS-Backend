@@ -82,6 +82,8 @@ public class AppDbContext : DbContext, IAppDbContext
         Set<SalesLeadAssignment>();
     public DbSet<DeveloperWork> DeveloperWorks =>
     Set<DeveloperWork>();
+    public DbSet<UserDetails> UserDetails => Set<UserDetails>();
+    public DbSet<UserDocument> UserDocuments => Set<UserDocument>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -199,6 +201,185 @@ public class AppDbContext : DbContext, IAppDbContext
             .HasForeignKey(e => e.RoleNumber)
             .HasPrincipalKey(e => e.RoleNumber)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // ========================================================
+        // USER DETAILS
+        // ========================================================
+
+        modelBuilder.Entity<UserDetails>(entity =>
+        {
+            entity.ToTable("UserDetails");
+
+            entity.HasKey(e => e.Id);
+
+            entity.HasIndex(e => e.UserId)
+                .IsUnique();
+
+            entity.Property(e => e.PhoneNumber)
+                .HasMaxLength(20);
+
+            entity.Property(e => e.OfficialNumber)
+                .HasMaxLength(20);
+
+            entity.Property(e => e.AddressLine1)
+                .HasMaxLength(250);
+
+            entity.Property(e => e.AddressLine2)
+                .HasMaxLength(250);
+
+            entity.Property(e => e.City)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.State)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.PostalCode)
+                .HasMaxLength(20);
+
+            entity.Property(e => e.Country)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.EmergencyContactName)
+                .HasMaxLength(150);
+
+            entity.Property(e => e.EmergencyContactNumber)
+                .HasMaxLength(20);
+
+            entity.Property(e => e.BankName)
+                .HasMaxLength(150);
+
+            entity.Property(e => e.AccountHolderName)
+                .HasMaxLength(150);
+
+            entity.Property(e => e.AccountNumber)
+                .HasMaxLength(1000);
+
+            entity.Property(e => e.IFSCCode)
+                .HasMaxLength(20);
+
+            entity.Property(e => e.BankBranchName)
+                .HasMaxLength(150);
+
+            entity.Property(e => e.Notes)
+                .HasMaxLength(1000);
+
+            entity.HasOne(e => e.User)
+                .WithOne()
+                .HasForeignKey<UserDetails>(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.BranchId
+            });
+        });
+
+        modelBuilder.Entity<UserDetails>()
+            .HasQueryFilter(e =>
+                _tenantService.IsSuperAdmin ||
+                e.TenantId == _tenantService.TenantId);
+
+
+        // ========================================================
+        // USER DOCUMENTS
+        // ========================================================
+
+        modelBuilder.Entity<UserDocument>(entity =>
+        {
+            entity.ToTable("UserDocuments");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.DocumentType)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(e => e.OriginalFileName)
+                .HasMaxLength(255)
+                .IsRequired();
+
+            entity.Property(e => e.ContentType)
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(e => e.StorageProvider)
+                .HasMaxLength(50)
+                .IsRequired();
+
+            entity.Property(e => e.StorageKey)
+                .HasMaxLength(1000)
+                .IsRequired();
+
+            entity.Property(e => e.VerificationStatus)
+                .HasMaxLength(30)
+                .IsRequired()
+                .HasDefaultValue("Pending");
+
+            entity.Property(e => e.RejectionReason)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.FileSizeBytes)
+                .IsRequired();
+
+            entity.Property(e => e.UploadedAtUtc)
+                .IsRequired();
+
+            entity.HasCheckConstraint(
+                "CK_UserDocuments_FileSize",
+                "[FileSizeBytes] > 0");
+
+            entity.HasCheckConstraint(
+                "CK_UserDocuments_VerificationStatus",
+                "[VerificationStatus] IN ('Pending', 'Verified', 'Rejected')");
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<Tenant>()
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.VerifiedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => e.UserId);
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.BranchId
+            });
+
+            entity.HasIndex(e => new
+            {
+                e.TenantId,
+                e.UserId,
+                e.DocumentType
+            });
+        });
+
+        modelBuilder.Entity<UserDocument>()
+            .HasQueryFilter(e =>
+                _tenantService.IsSuperAdmin ||
+                e.TenantId == _tenantService.TenantId);
+
+
 
         // ========================================================
         // EMPLOYEE SALARY HISTORY
