@@ -286,6 +286,118 @@ public sealed class MonthlyAttendanceController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Returns only finalized monthly attendance reports
+    /// belonging to the currently authenticated employee.
+    /// </summary>
+    [HttpGet("my-reports")]
+    public async Task<IActionResult> GetMyReports(
+        [FromQuery] int? year,
+        [FromQuery] int? month,
+        CancellationToken cancellationToken)
+    {
+        // Staff can view their own finalized reports.
+        var isStaff = RoleName.Equals(
+                          "sales_staff",
+                          StringComparison.OrdinalIgnoreCase)
+                      || RoleName.Equals(
+                          "support_staff",
+                          StringComparison.OrdinalIgnoreCase)
+                      || RoleName.Equals(
+                          "developer",
+                          StringComparison.OrdinalIgnoreCase)
+                      || RoleName.Equals(
+                          "knowledge_trainer",
+                          StringComparison.OrdinalIgnoreCase);
+
+        if (!isStaff)
+            return Forbid();
+
+        if (year.HasValue && (year.Value < 2000 || year.Value > 9999))
+            return BadRequest(new { message = "Invalid year." });
+
+        if (month.HasValue && (month.Value < 1 || month.Value > 12))
+            return BadRequest(new { message = "Month must be between 1 and 12." });
+
+        var currentUserId = CurrentUserId;
+        var currentTenantId = CurrentTenantId;
+
+        var query = _db.MonthlyAttendanceReports
+            .AsNoTracking()
+            .Where(r =>
+                r.TenantId == currentTenantId &&
+                r.Status == MonthlyAttendanceReportStatus.Approved &&
+                r.Employees.Any(e => e.UserId == currentUserId));
+
+        if (year.HasValue)
+            query = query.Where(r => r.Year == year.Value);
+
+        if (month.HasValue)
+            query = query.Where(r => r.Month == month.Value);
+
+        var reports = await query
+            .OrderByDescending(r => r.Year)
+            .ThenByDescending(r => r.Month)
+            .Select(r => new
+            {
+                ReportId = r.Id,
+                r.Year,
+                r.Month,
+                Status = r.Status.ToString(),
+                BranchName = r.Branch != null
+                    ? r.Branch.BranchName
+                    : string.Empty,
+                r.ApprovedAtUtc,
+
+                Employee = r.Employees
+                    .Where(e => e.UserId == currentUserId)
+                    .Select(e => new
+                    {
+                        e.WorkingDays,
+                        e.PresentDays,
+                        e.ApprovedLeaveDays,
+                        e.HalfDays,
+                        e.AbsentDays,
+                        e.LateArrivals,
+                        e.MissingCheckIns,
+                        e.MissingCheckOuts,
+                        e.TotalWorkedHours,
+                        e.RequiredWorkingHours,
+                        e.DaysBelowRequiredHours,
+                        e.TotalShortageHours,
+                        e.MissingAttendanceDays
+                    })
+                    .FirstOrDefault()
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(reports
+            .Where(r => r.Employee != null)
+            .Select(r => new
+            {
+                r.ReportId,
+                r.Year,
+                r.Month,
+                r.Status,
+                r.BranchName,
+                r.ApprovedAtUtc,
+
+                r.Employee!.WorkingDays,
+                r.Employee.PresentDays,
+                r.Employee.ApprovedLeaveDays,
+                r.Employee.HalfDays,
+                r.Employee.AbsentDays,
+                r.Employee.LateArrivals,
+                r.Employee.MissingCheckIns,
+                r.Employee.MissingCheckOuts,
+                r.Employee.TotalWorkedHours,
+                r.Employee.RequiredWorkingHours,
+                r.Employee.DaysBelowRequiredHours,
+                r.Employee.TotalShortageHours,
+                r.Employee.MissingAttendanceDays
+            }));
+    }
+
     [HttpPost("{id:int}/return")]
     public async Task<IActionResult> Return(
         int id,
