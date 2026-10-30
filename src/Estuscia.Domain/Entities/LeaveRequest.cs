@@ -77,7 +77,7 @@ public class LeaveRequest
 
     public TenantBranch? Branch { get; set; }
 
-    public ApplicationUser? User { get; set; }
+    public ApplicationUser User { get; set; } = null!;
 
     public ApplicationUser? ReviewedByUser { get; set; }
 

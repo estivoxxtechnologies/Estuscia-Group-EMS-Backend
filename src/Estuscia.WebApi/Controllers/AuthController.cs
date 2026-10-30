@@ -91,7 +91,7 @@ public class AuthController : ControllerBase
                 .ThenInclude(t => t.DefaultCurrency)
 
             .Include(u => u.Branch)
-                .ThenInclude(b => b.Currency)
+                .ThenInclude(b => b!.Currency)
 
             .Include(u => u.Role)
 
@@ -503,7 +503,7 @@ public class AuthController : ControllerBase
                 .ThenInclude(t => t.DefaultCurrency)
 
             .Include(u => u.Branch)
-                .ThenInclude(b => b.Currency)
+                .ThenInclude(b => b!.Currency)
 
             .Include(u => u.Role)
 

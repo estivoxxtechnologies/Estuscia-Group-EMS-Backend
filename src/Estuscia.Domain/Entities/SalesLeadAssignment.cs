@@ -28,7 +28,7 @@ public class SalesLeadAssignment : BaseEntity, IBranchScopedEntity
 
     public Tenant? Tenant { get; set; }
 
-    public TenantBranch? Branch { get; set; }
+    public TenantBranch Branch { get; set; } = null!;
 
     public SalesLead SalesLead { get; set; } = null!;
 

@@ -676,11 +676,9 @@ public class LeaveRequestsController : ControllerBase
         if (roleName != "hr_ops" && roleName != "branch_manager") { return Forbid(); }
 
         var leaveRequest = await _context.LeaveRequests
-            .FirstOrDefaultAsync(
-                x => x.Id == id,
-                cancellationToken);
-
-        if (roleName == "branch_manager") { if (!currentUser.BranchId.HasValue) { return BadRequest(new { message = "Branch Manager is not assigned to a branch." }); } if (leaveRequest.BranchId != currentUser.BranchId.Value) { return Forbid(); } }
+    .FirstOrDefaultAsync(
+        x => x.Id == id,
+        cancellationToken);
 
         if (leaveRequest == null)
         {
@@ -688,6 +686,22 @@ public class LeaveRequestsController : ControllerBase
             {
                 message = "Leave request not found."
             });
+        }
+
+        if (roleName == "branch_manager")
+        {
+            if (!currentUser.BranchId.HasValue)
+            {
+                return BadRequest(new
+                {
+                    message = "Branch Manager is not assigned to a branch."
+                });
+            }
+
+            if (leaveRequest.BranchId != currentUser.BranchId.Value)
+            {
+                return Forbid();
+            }
         }
 
         // ========================================================
@@ -787,6 +801,14 @@ public class LeaveRequestsController : ControllerBase
             .FirstOrDefaultAsync(
                 x => x.Id == id,
                 cancellationToken);
+
+        if (leaveRequest == null)
+        {
+            return NotFound(new
+            {
+                message = "Leave request not found."
+            });
+        }
 
         if (roleName == "branch_manager")
         {

@@ -820,11 +820,11 @@ public sealed class DashboardController : ControllerBase
         TimeOnly? tenantEnd)
     {
         var requiredHours =
-            branchHours.GetValueOrDefault() > 0
-                ? branchHours.Value
-                : tenantHours.GetValueOrDefault() > 0
-                    ? tenantHours.Value
-                    : 8m;
+    branchHours.GetValueOrDefault() > 0
+        ? branchHours.GetValueOrDefault()
+        : tenantHours.GetValueOrDefault() > 0
+            ? tenantHours.GetValueOrDefault()
+            : 8m;
 
         var start = branchStart
             ?? tenantStart

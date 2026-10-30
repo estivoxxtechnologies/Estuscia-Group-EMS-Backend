@@ -193,13 +193,13 @@ public class JwtTokenGenerator : IJwtTokenGenerator
                 key,
                 SecurityAlgorithms.HmacSha256);
 
+
         var claims = new List<Claim>
 {
     new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
     new Claim("user_id", user.Id.ToString()),
     new Claim("nameid", user.Id.ToString()),
 
-    new Claim("email", user.Email),
     new Claim("unique_name", user.FullName),
     new Claim("role_id", user.RoleNumber.ToString()),
     new Claim("role", user.Role.RoleName),
@@ -208,11 +208,17 @@ public class JwtTokenGenerator : IJwtTokenGenerator
     new Claim("designation", user.Designation ?? string.Empty)
 };
 
+        if (!string.IsNullOrWhiteSpace(user.Email))
+        {
+            claims.Add(new Claim("email", user.Email));
+        }
+
         if (user.BranchId.HasValue)
         {
             claims.Add(
                 new Claim("branch_id", user.BranchId.Value.ToString()));
         }
+
         var tokenDescriptor =
             new SecurityTokenDescriptor
             {

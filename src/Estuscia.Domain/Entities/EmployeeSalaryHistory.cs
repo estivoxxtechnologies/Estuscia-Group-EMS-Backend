@@ -37,5 +37,5 @@ public class EmployeeSalaryHistory : BaseEntity, IMultiTenantEntity
     public string? RejectionReason { get; set; }
 
     // Employee
-    public ApplicationUser? User { get; set; }
+    public ApplicationUser User { get; set; } = null!;
 }

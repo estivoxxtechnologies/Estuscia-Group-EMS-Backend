@@ -18,7 +18,7 @@ public class SalesLead : BaseEntity, IBranchScopedEntity
 
     public Tenant? Tenant { get; set; }
 
-    public TenantBranch? Branch { get; set; }
+    public TenantBranch Branch { get; set; } = null!;
 
     public ICollection<SalesLeadAssignment> Assignments { get; set; }
         = new List<SalesLeadAssignment>();
