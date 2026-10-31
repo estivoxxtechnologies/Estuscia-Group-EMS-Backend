@@ -292,7 +292,16 @@ public class AppDbContext : DbContext, IAppDbContext
 
         modelBuilder.Entity<UserDocument>(entity =>
         {
-            entity.ToTable("UserDocuments");
+            entity.ToTable("UserDocuments", table =>
+            {
+                table.HasCheckConstraint(
+                    "CK_UserDocuments_FileSize",
+                    "[FileSizeBytes] > 0");
+
+                table.HasCheckConstraint(
+                    "CK_UserDocuments_VerificationStatus",
+                    "[VerificationStatus] IN ('Pending', 'Verified', 'Rejected')");
+            });
 
             entity.HasKey(e => e.Id);
 
@@ -329,14 +338,6 @@ public class AppDbContext : DbContext, IAppDbContext
 
             entity.Property(e => e.UploadedAtUtc)
                 .IsRequired();
-
-            entity.HasCheckConstraint(
-                "CK_UserDocuments_FileSize",
-                "[FileSizeBytes] > 0");
-
-            entity.HasCheckConstraint(
-                "CK_UserDocuments_VerificationStatus",
-                "[VerificationStatus] IN ('Pending', 'Verified', 'Rejected')");
 
             entity.HasOne(e => e.User)
                 .WithMany()
@@ -1233,6 +1234,11 @@ public class AppDbContext : DbContext, IAppDbContext
         // ============================================================
 
         modelBuilder.Entity<DeveloperWork>()
+     .HasQueryFilter(e =>
+         _tenantService.IsSuperAdmin ||
+         e.TenantId == _tenantService.TenantId);
+
+        modelBuilder.Entity<DeveloperWork>()
             .Property(x => x.Status)
             .HasConversion<int>();
 
@@ -1243,6 +1249,7 @@ public class AppDbContext : DbContext, IAppDbContext
         modelBuilder.Entity<DeveloperWork>()
             .Property(x => x.WorkType)
             .HasConversion<int>();
+
 
         // ------------------------------------------------------------
         // Tenant relationship

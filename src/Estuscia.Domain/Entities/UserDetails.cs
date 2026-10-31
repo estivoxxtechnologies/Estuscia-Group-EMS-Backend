@@ -5,7 +5,6 @@ namespace Estuscia.Domain.Entities;
 
 public class UserDetails : BaseEntity, IMultiTenantEntity
 {
-    public int Id { get; set; }
     public int UserId { get; set; }
 
     public int? TenantId { get; set; }

@@ -61,18 +61,6 @@ public class TenantCompanyProfile : BaseEntity, IMultiTenantEntity
     public string? PayslipFooterText { get; set; }
 
     // =========================================================
-    // AUDIT
-    // =========================================================
-
-    public DateTime CreatedAtUtc { get; set; }
-
-    public DateTime? UpdatedAtUtc { get; set; }
-
-    public int? CreatedByUserId { get; set; }
-
-    public int? UpdatedByUserId { get; set; }
-
-    // =========================================================
     // RELATIONSHIP
     // =========================================================
 

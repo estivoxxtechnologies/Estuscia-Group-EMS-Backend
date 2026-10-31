@@ -5,8 +5,6 @@ namespace Estuscia.Domain.Entities;
 
 public class UserDocument : BaseEntity, IMultiTenantEntity
 {
-    public int Id { get; set; }
-
     public int UserId { get; set; }
     public int? TenantId { get; set; }
     public int? BranchId { get; set; }
@@ -33,8 +31,5 @@ public class UserDocument : BaseEntity, IMultiTenantEntity
 
     public int UploadedByUserId { get; set; }
     public DateTime UploadedAtUtc { get; set; } = DateTime.UtcNow;
-
-    public DateTime? UpdatedAtUtc { get; set; }
-
     public ApplicationUser? User { get; set; }
 }

@@ -204,13 +204,15 @@ public class JwtTokenGenerator : IJwtTokenGenerator
     new Claim("role_id", user.RoleNumber.ToString()),
     new Claim("role", user.Role.RoleName),
 
-    new Claim("tenant_id", user.TenantId.ToString()),
+    new Claim("tenant_id", user.TenantId?.ToString() ?? string.Empty),
     new Claim("designation", user.Designation ?? string.Empty)
 };
 
-        if (!string.IsNullOrWhiteSpace(user.Email))
+        var email = user.Email;
+
+        if (!string.IsNullOrWhiteSpace(email))
         {
-            claims.Add(new Claim("email", user.Email));
+            claims.Add(new Claim("email", email));
         }
 
         if (user.BranchId.HasValue)
