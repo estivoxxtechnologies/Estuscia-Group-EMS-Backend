@@ -1,9 +1,11 @@
-﻿using System.Security.Claims;
+﻿
+using System.Security.Claims;
 using Estuscia.Application.Common.Interfaces;
 using Estuscia.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Estuscia.WebApi.Security;
 
 namespace Estuscia.WebApi.Controllers;
 
@@ -14,9 +16,9 @@ public class TenantCompanyProfileController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly ICurrentTenantService _tenantService;
-    private readonly IWebHostEnvironment _environment;
+    private readonly IFileStorageService _fileStorage;
 
-    private const long MaxLogoSizeBytes = 2 * 1024 * 1024; // 2 MB
+    private const long MaxLogoSizeBytes = 2 * 1024 * 1024;
 
     private static readonly string[] AllowedLogoContentTypes =
     {
@@ -36,11 +38,11 @@ public class TenantCompanyProfileController : ControllerBase
     public TenantCompanyProfileController(
         AppDbContext db,
         ICurrentTenantService tenantService,
-        IWebHostEnvironment environment)
+        IFileStorageService fileStorage)
     {
         _db = db;
         _tenantService = tenantService;
-        _environment = environment;
+        _fileStorage = fileStorage;
     }
 
     // ============================================================
@@ -158,10 +160,6 @@ public class TenantCompanyProfileController : ControllerBase
         if (logo.Length > MaxLogoSizeBytes)
             return BadRequest("Logo size cannot exceed 2 MB.");
 
-        // --------------------------------------------------------
-        // Validate extension
-        // --------------------------------------------------------
-
         var extension = Path
             .GetExtension(logo.FileName)
             .ToLowerInvariant();
@@ -172,144 +170,120 @@ public class TenantCompanyProfileController : ControllerBase
                 "Only PNG, JPG, JPEG and WEBP logo files are allowed.");
         }
 
-        // --------------------------------------------------------
-        // Validate content type
-        // --------------------------------------------------------
+        if (!await UploadedFileSignatureValidator.IsValidAsync(
+        logo, extension, HttpContext.RequestAborted))
+        {
+            return BadRequest("The uploaded file is not a valid image.");
+        }
 
-        var contentType =
-            logo.ContentType?.ToLowerInvariant();
+        var contentType = extension switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => throw new InvalidOperationException("Unsupported logo format.")
+        };
 
         if (string.IsNullOrWhiteSpace(contentType) ||
             !AllowedLogoContentTypes.Contains(contentType))
         {
-            return BadRequest(
-                "Invalid logo content type.");
+            return BadRequest("Invalid logo content type.");
         }
-
-        // --------------------------------------------------------
-        // Get tenant
-        // --------------------------------------------------------
 
         var tenantId = GetTenantId();
 
         if (!tenantId.HasValue)
-            return BadRequest(
-                "Tenant could not be determined.");
+            return BadRequest("Tenant could not be determined.");
 
         var userId = GetUserId();
-
-        // --------------------------------------------------------
-        // Find existing profile
-        // --------------------------------------------------------
 
         var profile = await _db.TenantCompanyProfiles
             .FirstOrDefaultAsync(
                 x => x.TenantId == tenantId.Value);
 
-        // --------------------------------------------------------
-        // Create profile if it doesn't exist
-        // --------------------------------------------------------
-
         if (profile == null)
         {
-            profile =
-                new Domain.Entities.TenantCompanyProfile
-                {
-                    TenantId = tenantId.Value,
-                    CreatedAtUtc = DateTime.UtcNow,
-                    CreatedByUserId = userId
-                };
+            profile = new Domain.Entities.TenantCompanyProfile
+            {
+                TenantId = tenantId.Value,
+                CreatedAtUtc = DateTime.UtcNow,
+                CreatedByUserId = userId
+            };
 
             _db.TenantCompanyProfiles.Add(profile);
         }
 
-        // --------------------------------------------------------
-        // Delete previous physical logo
-        // --------------------------------------------------------
-
-        DeleteExistingLogo(profile.LogoUrl);
-
-        // --------------------------------------------------------
-        // Resolve wwwroot
-        // --------------------------------------------------------
-
-        var webRoot =
-            _environment.WebRootPath;
-
-        if (string.IsNullOrWhiteSpace(webRoot))
-        {
-            webRoot = Path.Combine(
-                _environment.ContentRootPath,
-                "wwwroot");
-        }
-
-        // --------------------------------------------------------
-        // Create tenant-specific directory
-        // --------------------------------------------------------
-
-        var uploadsRoot = Path.Combine(
-            webRoot,
-            "uploads",
-            "company-logos",
-            $"tenant-{tenantId.Value}"
-        );
-
-        Directory.CreateDirectory(uploadsRoot);
-
-        // --------------------------------------------------------
-        // Generate safe filename
-        // --------------------------------------------------------
+        // Preserve the old logo until the new logo is saved.
+        var previousLogoUrl = profile.LogoUrl;
 
         var generatedFileName =
             $"logo-{Guid.NewGuid():N}{extension}";
 
-        var physicalPath =
-            Path.Combine(
-                uploadsRoot,
-                generatedFileName);
+        var storageKey =
+            $"uploads/company-logos/tenant-{tenantId.Value}/{generatedFileName}";
 
-        // --------------------------------------------------------
-        // Save uploaded file
-        // --------------------------------------------------------
-
-        await using (
-            var stream = new FileStream(
-                physicalPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None))
+        // Upload the new logo to private S3.
+        await using (var stream = logo.OpenReadStream())
         {
-            await logo.CopyToAsync(stream);
+            await _fileStorage.UploadAsync(
+                storageKey,
+                stream,
+                contentType,
+                HttpContext.RequestAborted);
         }
-
-        // --------------------------------------------------------
-        // Generate public URL
-        // --------------------------------------------------------
 
         var logoUrl =
             $"{Request.Scheme}://{Request.Host}" +
             $"/uploads/company-logos/tenant-{tenantId.Value}" +
             $"/{generatedFileName}";
 
-        // --------------------------------------------------------
-        // Update database
-        // --------------------------------------------------------
-
         profile.LogoUrl = logoUrl;
+        profile.LogoFileName = Path.GetFileName(logo.FileName);
+        profile.LogoContentType = contentType;
+        profile.UpdatedAtUtc = DateTime.UtcNow;
+        profile.UpdatedByUserId = userId;
 
-        profile.LogoFileName =
-            Path.GetFileName(logo.FileName);
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch
+        {
+            // Remove the new S3 object if the database save fails.
+            try
+            {
+                await _fileStorage.DeleteAsync(storageKey);
+            }
+            catch
+            {
+                // Preserve the original database exception.
+            }
 
-        profile.LogoContentType =
-            contentType;
+            throw;
+        }
 
-        profile.UpdatedAtUtc =
-            DateTime.UtcNow;
+        // Delete the old logo only after the new one is saved.
+        if (!string.IsNullOrWhiteSpace(previousLogoUrl))
+        {
+            var previousKey = GetLogoStorageKey(
+                previousLogoUrl,
+                tenantId.Value);
 
-        profile.UpdatedByUserId =
-            userId;
-
-        await _db.SaveChangesAsync();
+            if (previousKey != null &&
+                !previousKey.Equals(
+                    storageKey,
+                    StringComparison.Ordinal))
+            {
+                try
+                {
+                    await _fileStorage.DeleteAsync(previousKey);
+                }
+                catch
+                {
+                    // A cleanup failure must not undo a successful upload.
+                }
+            }
+        }
 
         return Ok(ToDto(profile));
     }
@@ -327,8 +301,7 @@ public class TenantCompanyProfileController : ControllerBase
         var tenantId = GetTenantId();
 
         if (!tenantId.HasValue)
-            return BadRequest(
-                "Tenant could not be determined.");
+            return BadRequest("Tenant could not be determined.");
 
         var userId = GetUserId();
 
@@ -344,33 +317,43 @@ public class TenantCompanyProfileController : ControllerBase
             });
         }
 
-        // --------------------------------------------------------
-        // Delete physical file
-        // --------------------------------------------------------
+        var previousLogoUrl = profile.LogoUrl;
 
-        DeleteExistingLogo(profile.LogoUrl);
-
-        // --------------------------------------------------------
-        // Clear logo information
-        // --------------------------------------------------------
-
+        // Clear the database first.
         profile.LogoUrl = null;
         profile.LogoFileName = null;
         profile.LogoContentType = null;
 
-        profile.UpdatedAtUtc =
-            DateTime.UtcNow;
-
-        profile.UpdatedByUserId =
-            userId;
+        profile.UpdatedAtUtc = DateTime.UtcNow;
+        profile.UpdatedByUserId = userId;
 
         await _db.SaveChangesAsync();
+
+        // Delete the S3 object after the database save.
+        if (!string.IsNullOrWhiteSpace(previousLogoUrl))
+        {
+            var previousKey = GetLogoStorageKey(
+                previousLogoUrl,
+                tenantId.Value);
+
+            if (previousKey != null)
+            {
+                try
+                {
+                    await _fileStorage.DeleteAsync(previousKey);
+                }
+                catch
+                {
+                    // Do not fail the profile deletion because of cleanup.
+                }
+            }
+        }
 
         return Ok(ToDto(profile));
     }
 
     // ============================================================
-    // HELPERS
+    // AUTHORIZATION HELPERS
     // ============================================================
 
     private bool IsCompanyAdmin()
@@ -390,17 +373,16 @@ public class TenantCompanyProfileController : ControllerBase
             || User.IsInRole("knowledge_trainer");
     }
 
-    // ------------------------------------------------------------
-    // Tenant ID
-    // ------------------------------------------------------------
+    // ============================================================
+    // TENANT ID
+    // ============================================================
 
     private int? GetTenantId()
     {
         if (User.IsInRole("super_admin"))
         {
             var headerTenantId =
-                Request.Headers["X-Tenant-Id"]
-                    .FirstOrDefault();
+                Request.Headers["X-Tenant-Id"].FirstOrDefault();
 
             if (int.TryParse(
                 headerTenantId,
@@ -413,26 +395,23 @@ public class TenantCompanyProfileController : ControllerBase
         return _tenantService.TenantId;
     }
 
-    // ------------------------------------------------------------
-    // Current User ID
-    // ------------------------------------------------------------
+    // ============================================================
+    // CURRENT USER ID
+    // ============================================================
 
     private int? GetUserId()
     {
-        var value =
-            User.FindFirstValue(
-                ClaimTypes.NameIdentifier);
+        var value = User.FindFirstValue(
+            ClaimTypes.NameIdentifier);
 
-        return int.TryParse(
-            value,
-            out var userId)
+        return int.TryParse(value, out var userId)
             ? userId
             : null;
     }
 
-    // ------------------------------------------------------------
-    // Clean string
-    // ------------------------------------------------------------
+    // ============================================================
+    // CLEAN STRING
+    // ============================================================
 
     private static string? Clean(string? value)
     {
@@ -441,62 +420,88 @@ public class TenantCompanyProfileController : ControllerBase
             : value.Trim();
     }
 
-    // ------------------------------------------------------------
-    // Delete existing logo
-    // ------------------------------------------------------------
+    // ============================================================
+    // GET S3 STORAGE KEY FROM EXISTING LOGO URL
+    // ============================================================
 
-    private void DeleteExistingLogo(
-        string? logoUrl)
+    private static string? GetLogoStorageKey(
+        string? logoUrl,
+        int tenantId)
     {
         if (string.IsNullOrWhiteSpace(logoUrl))
-            return;
+            return null;
 
-        try
+        var path = logoUrl;
+
+        if (Uri.TryCreate(
+            logoUrl,
+            UriKind.Absolute,
+            out var uri))
         {
-            var uri = new Uri(logoUrl);
-
-            var relativePath =
-                uri.AbsolutePath
-                    .TrimStart('/')
-                    .Replace(
-                        '/',
-                        Path.DirectorySeparatorChar);
-
-            var webRoot =
-                _environment.WebRootPath;
-
-            if (string.IsNullOrWhiteSpace(webRoot))
-            {
-                webRoot = Path.Combine(
-                    _environment.ContentRootPath,
-                    "wwwroot");
-            }
-
-            var physicalPath =
-                Path.Combine(
-                    webRoot,
-                    relativePath);
-
-            if (System.IO.File.Exists(
-                physicalPath))
-            {
-                System.IO.File.Delete(
-                    physicalPath);
-            }
+            path = uri.AbsolutePath;
         }
-        catch
+
+        const string prefix = "/uploads/company-logos/";
+
+        if (!path.StartsWith(
+            prefix,
+            StringComparison.OrdinalIgnoreCase))
         {
-            // Do not fail database operations
-            // if the old physical logo cannot
-            // be deleted.
+            return null;
         }
+
+        var key = path.TrimStart('/').Replace('\\', '/');
+        var segments = key.Split('/');
+
+        // Expected:
+        // uploads/company-logos/tenant-{id}/{filename}
+
+        if (segments.Length != 4 ||
+            !segments[0].Equals(
+                "uploads",
+                StringComparison.OrdinalIgnoreCase) ||
+            !segments[1].Equals(
+                "company-logos",
+                StringComparison.OrdinalIgnoreCase) ||
+            !segments[2].Equals(
+                $"tenant-{tenantId}",
+                StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(segments[3]) ||
+            segments[3] != Path.GetFileName(segments[3]))
+        {
+            return null;
+        }
+
+        return key;
+    }
+
+    // ============================================================
+    // GENERATE PRIVATE S3 DISPLAY URL
+    // ============================================================
+
+    private string? GetLogoDisplayUrl(
+        string? logoUrl,
+        int tenantId)
+    {
+        if (string.IsNullOrWhiteSpace(logoUrl))
+            return null;
+
+        var key = GetLogoStorageKey(logoUrl, tenantId);
+
+        // Preserve external or legacy URLs that are not S3 keys.
+        if (key == null)
+            return logoUrl;
+
+        return _fileStorage.GetPresignedUrl(
+            key,
+            TimeSpan.FromMinutes(15));
     }
 
     // ============================================================
     // ENTITY -> DTO
     // ============================================================
 
-    private static TenantCompanyProfileDto ToDto(
+    private TenantCompanyProfileDto ToDto(
         Domain.Entities.TenantCompanyProfile profile)
     {
         return new TenantCompanyProfileDto
@@ -507,36 +512,23 @@ public class TenantCompanyProfileController : ControllerBase
             LegalName = profile.LegalName,
             DisplayName = profile.DisplayName,
 
-            LogoUrl = profile.LogoUrl,
+            LogoUrl = GetLogoDisplayUrl(
+                profile.LogoUrl,
+                profile.TenantId ?? 0),
+
             LogoFileName = profile.LogoFileName,
             LogoContentType = profile.LogoContentType,
 
-            AddressLine1 =
-                profile.AddressLine1,
+            AddressLine1 = profile.AddressLine1,
+            AddressLine2 = profile.AddressLine2,
+            City = profile.City,
+            State = profile.State,
+            PostalCode = profile.PostalCode,
+            Country = profile.Country,
 
-            AddressLine2 =
-                profile.AddressLine2,
-
-            City =
-                profile.City,
-
-            State =
-                profile.State,
-
-            PostalCode =
-                profile.PostalCode,
-
-            Country =
-                profile.Country,
-
-            Phone =
-                profile.Phone,
-
-            Email =
-                profile.Email,
-
-            Website =
-                profile.Website,
+            Phone = profile.Phone,
+            Email = profile.Email,
+            Website = profile.Website,
 
             TaxRegistrationNumber =
                 profile.TaxRegistrationNumber,
@@ -547,17 +539,11 @@ public class TenantCompanyProfileController : ControllerBase
             PayslipFooterText =
                 profile.PayslipFooterText,
 
-            CreatedAtUtc =
-                profile.CreatedAtUtc,
+            CreatedAtUtc = profile.CreatedAtUtc,
+            UpdatedAtUtc = profile.UpdatedAtUtc,
 
-            UpdatedAtUtc =
-                profile.UpdatedAtUtc,
-
-            CreatedByUserId =
-                profile.CreatedByUserId,
-
-            UpdatedByUserId =
-                profile.UpdatedByUserId
+            CreatedByUserId = profile.CreatedByUserId,
+            UpdatedByUserId = profile.UpdatedByUserId
         };
     }
 }

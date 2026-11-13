@@ -1,4 +1,5 @@
-﻿using Estuscia.Application.Common.Interfaces;
+﻿
+using Estuscia.Application.Common.Interfaces;
 using Estuscia.Application.Users.DTOs;
 using Estuscia.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
@@ -13,11 +14,48 @@ namespace Estuscia.WebApi.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly IAppDbContext _context;
+    private readonly IFileStorageService _fileStorage;
 
-    public UsersController(IAppDbContext context)
+    public UsersController(
+        IAppDbContext context,
+        IFileStorageService fileStorage)
     {
         _context = context;
+        _fileStorage = fileStorage;
     }
+
+    // ========================================================
+    // AVATAR DISPLAY URL
+    // ========================================================
+
+    private string? GetAvatarDisplayUrl(string? avatarUrl)
+    {
+        if (string.IsNullOrWhiteSpace(avatarUrl))
+            return null;
+
+        const string prefix = "/uploads/avatars/";
+
+        var path = avatarUrl;
+
+        if (Uri.TryCreate(avatarUrl, UriKind.Absolute, out var uri))
+            path = uri.AbsolutePath;
+
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return avatarUrl;
+
+        var fileName = Path.GetFileName(path);
+
+        if (string.IsNullOrWhiteSpace(fileName))
+            return avatarUrl;
+
+        var key = $"uploads/avatars/{fileName}";
+
+        return _fileStorage.GetPresignedUrl(key);
+    }
+
+    // ========================================================
+    // GET USERS
+    // ========================================================
 
     [HttpGet]
     public async Task<ActionResult<List<UserDto>>> GetUsers(
@@ -35,8 +73,7 @@ public class UsersController : ControllerBase
 
         var users = await _context.Users
             .AsNoTracking()
-            .Where(u =>
-                u.TenantId == tenantId)
+            .Where(u => u.TenantId == tenantId)
             .Include(u => u.Tenant)
             .Include(u => u.Branch)
             .Include(u => u.Role)
@@ -76,13 +113,24 @@ public class UsersController : ControllerBase
             })
             .ToListAsync(cancellationToken);
 
+        // Generate S3 presigned URLs after database materialization.
+        foreach (var user in users)
+        {
+            user.AvatarUrl =
+                GetAvatarDisplayUrl(user.AvatarUrl) ?? string.Empty;
+        }
+
         return Ok(users);
     }
 
+    // ========================================================
+    // CREATE USER
+    // ========================================================
+
     [HttpPost]
     public async Task<IActionResult> CreateUser(
-    [FromBody] CreateUserDto request,
-    CancellationToken cancellationToken)
+        [FromBody] CreateUserDto request,
+        CancellationToken cancellationToken)
     {
         var tenantIdValue = User.FindFirst("tenant_id")?.Value;
 
@@ -148,7 +196,7 @@ public class UsersController : ControllerBase
 
         var employeeCode = request.EmployeeCode.Trim();
 
-        // Check duplicate email inside this tenant
+        // Check duplicate email inside this tenant.
         var emailExists = await _context.Users
             .IgnoreQueryFilters()
             .AnyAsync(
@@ -165,7 +213,7 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Check duplicate employee code inside this tenant
+        // Check duplicate employee code inside this tenant.
         var employeeCodeExists = await _context.Users
             .IgnoreQueryFilters()
             .AnyAsync(
@@ -182,7 +230,7 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Validate role
+        // Validate role.
         var role = await _context.Roles
             .AsNoTracking()
             .FirstOrDefaultAsync(
@@ -199,7 +247,7 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Validate branch
+        // Validate branch.
         TenantBranch? branch = null;
 
         if (request.BranchId.HasValue)
@@ -260,13 +308,16 @@ public class UsersController : ControllerBase
             });
     }
 
+    // ========================================================
+    // UPDATE USER
+    // ========================================================
+
     [HttpPut("{id:int}")]
     public async Task<IActionResult> UpdateUser(
-    int id,
-    [FromBody] UpdateUserDto request,
-    CancellationToken cancellationToken)
+        int id,
+        [FromBody] UpdateUserDto request,
+        CancellationToken cancellationToken)
     {
-        // Get tenant from JWT
         var tenantIdValue =
             User.FindFirst("tenant_id")?.Value
             ?? User.FindFirst("tenantId")?.Value;
@@ -279,7 +330,6 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Validate request
         if (string.IsNullOrWhiteSpace(request.FullName))
         {
             return BadRequest(new
@@ -328,7 +378,6 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Find the employee inside the authenticated tenant
         var user = await _context.Users
             .Include(u => u.Tenant)
             .Include(u => u.Branch)
@@ -347,14 +396,12 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Normalize values
         var email = request.Email
             .Trim()
             .ToLowerInvariant();
 
         var employeeCode = request.EmployeeCode.Trim();
 
-        // Check duplicate email
         var emailExists = await _context.Users
             .IgnoreQueryFilters()
             .AnyAsync(
@@ -372,7 +419,6 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Check duplicate employee code
         var employeeCodeExists = await _context.Users
             .IgnoreQueryFilters()
             .AnyAsync(
@@ -390,7 +436,6 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Validate role
         var role = await _context.Roles
             .AsNoTracking()
             .FirstOrDefaultAsync(
@@ -407,7 +452,6 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Validate branch
         var branch = await _context.TenantBranches
             .FirstOrDefaultAsync(
                 b =>
@@ -424,24 +468,14 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Update employee
+        // Update employee.
         user.FullName = request.FullName.Trim();
-
         user.Email = email;
-
         user.EmployeeCode = employeeCode;
-
         user.RoleNumber = request.RoleNumber;
-
         user.Designation = request.Designation.Trim();
-
         user.Department = request.Department.Trim();
-
         user.SalaryBase = request.SalaryBase;
-
-        user.BranchId = request.BranchId;
-
-        // Keep TenantBranchId synchronized with BranchId
         user.BranchId = branch.Id;
 
         user.AvatarUrl =
@@ -450,13 +484,10 @@ public class UsersController : ControllerBase
             ?? string.Empty;
 
         user.IsActive = request.IsActive;
-
         user.UpdatedAtUtc = DateTime.UtcNow;
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        // Reload navigation properties so response contains
-        // the latest branch and role information
         var updatedUser = await _context.Users
             .AsNoTracking()
             .Include(u => u.Tenant)
@@ -505,7 +536,8 @@ public class UsersController : ControllerBase
 
             SalaryBase = updatedUser.SalaryBase,
 
-            AvatarUrl = updatedUser.AvatarUrl,
+            AvatarUrl =
+                GetAvatarDisplayUrl(updatedUser.AvatarUrl) ?? string.Empty,
 
             IsActive = updatedUser.IsActive
         };
@@ -523,10 +555,6 @@ public class UsersController : ControllerBase
         [FromBody] CreateCompanyAdminDto request,
         CancellationToken cancellationToken)
     {
-        // ========================================================
-        // CHECK CURRENT USER
-        // ========================================================
-
         var currentUserIdValue =
             User.FindFirst("user_id")?.Value
             ?? User.FindFirst("sub")?.Value;
@@ -544,13 +572,8 @@ public class UsersController : ControllerBase
         if (currentUser == null)
             return Unauthorized();
 
-        // Only Super Admin can create Company Admin
         if (currentUser.RoleNumber != 1)
             return Forbid();
-
-        // ========================================================
-        // VALIDATE TENANT
-        // ========================================================
 
         var tenant = await _context.Tenants
             .IgnoreQueryFilters()
@@ -573,10 +596,6 @@ public class UsersController : ControllerBase
                 message = "Cannot create a Company Admin for an inactive tenant."
             });
         }
-
-        // ========================================================
-        // VALIDATE BASIC INFORMATION
-        // ========================================================
 
         var fullName = request.FullName.Trim();
 
@@ -636,11 +655,6 @@ public class UsersController : ControllerBase
             });
         }
 
-        // ========================================================
-        // COMPANY ADMIN ROLE
-        // ========================================================
-
-        // RoleNumber 2 = company_admin
         const int companyAdminRoleNumber = 2;
 
         var role = await _context.Roles
@@ -659,10 +673,6 @@ public class UsersController : ControllerBase
             });
         }
 
-        // ========================================================
-        // CHECK DUPLICATE EMAIL
-        // ========================================================
-
         var emailExists = await _context.Users
             .IgnoreQueryFilters()
             .AnyAsync(
@@ -679,10 +689,6 @@ public class UsersController : ControllerBase
                     "A user with this email already exists in this tenant."
             });
         }
-
-        // ========================================================
-        // CHECK DUPLICATE EMPLOYEE CODE
-        // ========================================================
 
         var employeeCodeExists = await _context.Users
             .IgnoreQueryFilters()
@@ -701,35 +707,21 @@ public class UsersController : ControllerBase
             });
         }
 
-        // ========================================================
-        // CREATE COMPANY ADMIN
-        // ========================================================
-
         var user = new ApplicationUser
         {
-            // Selected tenant
             TenantId = tenantId,
-
-            // IMPORTANT:
-            // Company Admin is tenant-level,
-            // NOT branch-level.
             BranchId = null,
 
             FullName = fullName,
-
             Email = emailValue,
 
             PasswordHash =
-                BCrypt.Net.BCrypt.HashPassword(
-                    request.Password),
+                BCrypt.Net.BCrypt.HashPassword(request.Password),
 
             EmployeeCode = employeeCode,
-
-            // ALWAYS company_admin
             RoleNumber = companyAdminRoleNumber,
 
             Designation = designation,
-
             Department = department,
 
             SalaryBase = request.SalaryBase,
@@ -743,12 +735,7 @@ public class UsersController : ControllerBase
 
         _context.Users.Add(user);
 
-        await _context.SaveChangesAsync(
-            cancellationToken);
-
-        // ========================================================
-        // RESPONSE
-        // ========================================================
+        await _context.SaveChangesAsync(cancellationToken);
 
         return Created(
             string.Empty,
@@ -760,42 +747,38 @@ public class UsersController : ControllerBase
                     "Company Admin created successfully.",
 
                 tenantId = user.TenantId,
-
                 tenantName = tenant.Name,
 
-                // Always null for Company Admin
                 branchId = (int?)null,
 
                 fullName = user.FullName,
-
                 email = user.Email,
-
                 employeeCode = user.EmployeeCode,
 
                 roleNumber = user.RoleNumber,
-
                 roleName = role.RoleName,
 
                 designation = user.Designation,
-
                 department = user.Department,
 
                 salaryBase = user.SalaryBase,
 
-                avatarUrl = user.AvatarUrl,
+                avatarUrl =
+                    GetAvatarDisplayUrl(user.AvatarUrl) ?? string.Empty,
 
                 isActive = user.IsActive
             });
     }
 
+    // ========================================================
+    // GET COMPANY ADMINS
+    // ========================================================
+
     [HttpGet("company-admins/{tenantId:int}")]
     public async Task<IActionResult> GetCompanyAdmins(
-    int tenantId,
-    CancellationToken cancellationToken)
+        int tenantId,
+        CancellationToken cancellationToken)
     {
-        // ---------------------------------------------------------
-        // Only SuperAdmin can manage Company Admins
-        // ---------------------------------------------------------
         var currentUserIdValue =
             User.FindFirst("user_id")?.Value
             ?? User.FindFirst("sub")?.Value;
@@ -823,15 +806,11 @@ public class UsersController : ControllerBase
             });
         }
 
-        // Role 1 = Super Admin
         if (currentUser.RoleNumber != 1)
         {
             return Forbid();
         }
 
-        // ---------------------------------------------------------
-        // Validate tenant
-        // ---------------------------------------------------------
         var tenantExists = await _context.Tenants
             .IgnoreQueryFilters()
             .AsNoTracking()
@@ -847,10 +826,6 @@ public class UsersController : ControllerBase
             });
         }
 
-        // ---------------------------------------------------------
-        // Get Company Admins for selected tenant
-        // Role 2 = Company Admin
-        // ---------------------------------------------------------
         var admins = await _context.Users
             .IgnoreQueryFilters()
             .AsNoTracking()
@@ -878,7 +853,6 @@ public class UsersController : ControllerBase
                     : null,
 
                 FullName = u.FullName,
-
                 Email = u.Email,
 
                 EmployeeCode = u.EmployeeCode,
@@ -890,7 +864,6 @@ public class UsersController : ControllerBase
                     : string.Empty,
 
                 Designation = u.Designation,
-
                 Department = u.Department,
 
                 SalaryBase = u.SalaryBase,
@@ -900,6 +873,13 @@ public class UsersController : ControllerBase
                 IsActive = u.IsActive
             })
             .ToListAsync(cancellationToken);
+
+        // Generate S3 presigned URLs after database materialization.
+        foreach (var admin in admins)
+        {
+            admin.AvatarUrl =
+                GetAvatarDisplayUrl(admin.AvatarUrl) ?? string.Empty;
+        }
 
         return Ok(admins);
     }

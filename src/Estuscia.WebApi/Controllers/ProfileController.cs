@@ -1,9 +1,11 @@
-﻿using System.Security.Claims;
+﻿
+using System.Security.Claims;
 using Estuscia.Application.Common.Interfaces;
 using Estuscia.Application.Users.DTOs.Profile;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Estuscia.WebApi.Security;
 
 namespace Estuscia.WebApi.Controllers;
 
@@ -13,14 +15,14 @@ namespace Estuscia.WebApi.Controllers;
 public class ProfileController : ControllerBase
 {
     private readonly IAppDbContext _context;
-    private readonly IWebHostEnvironment _environment;
+    private readonly IFileStorageService _fileStorage;
 
     public ProfileController(
         IAppDbContext context,
-        IWebHostEnvironment environment)
+        IFileStorageService fileStorage)
     {
         _context = context;
-        _environment = environment;
+        _fileStorage = fileStorage;
     }
 
     // ============================================================
@@ -40,6 +42,44 @@ public class ProfileController : ControllerBase
         }
 
         return userId;
+    }
+
+    // ============================================================
+    // GET AVATAR DISPLAY URL
+    // ============================================================
+
+    private string? GetAvatarDisplayUrl(string? avatarUrl)
+    {
+        if (string.IsNullOrWhiteSpace(avatarUrl))
+            return null;
+
+        const string prefix = "/uploads/avatars/";
+
+        var path = avatarUrl;
+
+        if (Uri.TryCreate(
+            avatarUrl,
+            UriKind.Absolute,
+            out var uri))
+        {
+            path = uri.AbsolutePath;
+        }
+
+        if (!path.StartsWith(
+            prefix,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return avatarUrl;
+        }
+
+        var fileName = Path.GetFileName(path);
+
+        if (string.IsNullOrWhiteSpace(fileName))
+            return avatarUrl;
+
+        var key = $"uploads/avatars/{fileName}";
+
+        return _fileStorage.GetPresignedUrl(key);
     }
 
     // ============================================================
@@ -82,7 +122,7 @@ public class ProfileController : ControllerBase
             // Personal
             FullName = user.FullName,
             Email = user.Email,
-            AvatarUrl = user.AvatarUrl,
+            AvatarUrl = GetAvatarDisplayUrl(user.AvatarUrl) ?? string.Empty,
 
             // Employee
             EmployeeCode = user.EmployeeCode,
@@ -387,6 +427,14 @@ public class ProfileController : ControllerBase
             });
         }
 
+        if (!await UploadedFileSignatureValidator.IsValidAsync(
+        file, extension, HttpContext.RequestAborted))
+        {
+            return BadRequest(new
+            {
+                message = "The uploaded file is not a valid image."
+            });
+        }
         // --------------------------------------------------------
         // LOAD USER
         // --------------------------------------------------------
@@ -404,87 +452,125 @@ public class ProfileController : ControllerBase
         }
 
         // --------------------------------------------------------
-        // CREATE AVATAR DIRECTORY
-        // --------------------------------------------------------
-
-        var avatarDirectory = Path.Combine(
-            _environment.WebRootPath ?? Path.Combine(
-                _environment.ContentRootPath,
-                "wwwroot"),
-            "uploads",
-            "avatars");
-
-        Directory.CreateDirectory(avatarDirectory);
-
-        // --------------------------------------------------------
-        // UNIQUE FILE NAME
+        // GENERATE S3 KEY
         // --------------------------------------------------------
 
         var fileName =
             $"{user.Id}_{Guid.NewGuid():N}{extension}";
 
-        var filePath =
-            Path.Combine(avatarDirectory, fileName);
+        var storageKey =
+            $"uploads/avatars/{fileName}";
 
         // --------------------------------------------------------
-        // SAVE FILE
+        // UPLOAD TO S3
         // --------------------------------------------------------
 
-        await using (var stream = new FileStream(
-            filePath,
-            FileMode.Create))
+        var contentType = extension switch
         {
-            await file.CopyToAsync(stream);
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            _ => throw new InvalidOperationException("Unsupported image format.")
+        };
+
+        if (string.IsNullOrWhiteSpace(contentType))
+        {
+            contentType = extension switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".webp" => "image/webp",
+                _ => "application/octet-stream"
+            };
+        }
+
+        await using (var stream = file.OpenReadStream())
+        {
+            await _fileStorage.UploadAsync(
+                storageKey,
+                stream,
+                contentType);
         }
 
         // --------------------------------------------------------
-        // DELETE OLD AVATAR
+        // SAVE DATABASE URL
         // --------------------------------------------------------
 
-        if (!string.IsNullOrWhiteSpace(user.AvatarUrl))
-        {
-            try
-            {
-                var oldRelativePath =
-                    user.AvatarUrl
-                        .TrimStart('/')
-                        .Replace(
-                            '/',
-                            Path.DirectorySeparatorChar);
-
-                var oldFilePath =
-                    Path.Combine(
-                        _environment.WebRootPath ?? Path.Combine(
-                            _environment.ContentRootPath,
-                            "wwwroot"),
-                        oldRelativePath);
-
-                if (System.IO.File.Exists(oldFilePath))
-                {
-                    System.IO.File.Delete(oldFilePath);
-                }
-            }
-            catch
-            {
-                // Do not fail the upload because old file cleanup failed.
-            }
-        }
-
-        // --------------------------------------------------------
-        // SAVE URL
-        // --------------------------------------------------------
+        var previousAvatarUrl = user.AvatarUrl;
 
         user.AvatarUrl =
             $"/uploads/avatars/{fileName}";
 
         user.UpdatedAtUtc = DateTime.UtcNow;
 
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch
+        {
+            // Remove newly uploaded S3 file if DB save fails.
+            try
+            {
+                await _fileStorage.DeleteAsync(storageKey);
+            }
+            catch
+            {
+                // Preserve original database error.
+            }
+
+            throw;
+        }
+
+        // --------------------------------------------------------
+        // DELETE OLD AVATAR FROM S3
+        // --------------------------------------------------------
+
+        if (!string.IsNullOrWhiteSpace(previousAvatarUrl))
+        {
+            try
+            {
+                var oldPath = previousAvatarUrl;
+
+                if (Uri.TryCreate(
+                    previousAvatarUrl,
+                    UriKind.Absolute,
+                    out var oldUri))
+                {
+                    oldPath = oldUri.AbsolutePath;
+                }
+
+                const string prefix = "/uploads/avatars/";
+
+                if (oldPath.StartsWith(
+                    prefix,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    var oldFileName = Path.GetFileName(oldPath);
+
+                    if (!string.IsNullOrWhiteSpace(oldFileName) &&
+                        oldFileName != fileName)
+                    {
+                        await _fileStorage.DeleteAsync(
+                            $"uploads/avatars/{oldFileName}");
+                    }
+                }
+            }
+            catch
+            {
+                // Do not fail the successful upload because
+                // old-file cleanup failed.
+            }
+        }
+
+        // --------------------------------------------------------
+        // RETURN TEMPORARY S3 URL
+        // --------------------------------------------------------
 
         return Ok(new
         {
             message = "Profile photo updated successfully.",
-            avatarUrl = user.AvatarUrl
+            avatarUrl = _fileStorage.GetPresignedUrl(storageKey)
         });
     }
 }

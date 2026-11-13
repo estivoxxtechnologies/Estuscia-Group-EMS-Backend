@@ -1,10 +1,12 @@
 ﻿
 using System.Security.Claims;
+using Estuscia.Application.Common.Interfaces;
 using Estuscia.Domain.Entities;
 using Estuscia.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Estuscia.WebApi.Security;
 
 namespace Estuscia.WebApi.Controllers;
 
@@ -16,6 +18,7 @@ public sealed class UserDetailsController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<UserDetailsController> _logger;
+    private readonly IFileStorageService _fileStorage;
 
     private const long MaxFileSize = 10 * 1024 * 1024;
 
@@ -51,11 +54,13 @@ public sealed class UserDetailsController : ControllerBase
     public UserDetailsController(
         AppDbContext db,
         IWebHostEnvironment environment,
-        ILogger<UserDetailsController> logger)
+        ILogger<UserDetailsController> logger,
+        IFileStorageService fileStorage)
     {
         _db = db;
         _environment = environment;
         _logger = logger;
+        _fileStorage = fileStorage;
     }
 
     // ----------------------------------------------------
@@ -226,6 +231,102 @@ public sealed class UserDetailsController : ControllerBase
                 details.Notes
             }
         });
+    }
+
+    // ----------------------------------------------------
+    // GET EMPLOYEES BY BRANCH
+    // GET: api/UserDetails/employees?branchId=1
+    // Management access
+    // ----------------------------------------------------
+
+    [HttpGet("employees")]
+    public async Task<IActionResult> GetEmployeesByBranch(
+        [FromQuery] int branchId,
+        CancellationToken cancellationToken)
+    {
+        if (!IsManagement())
+            return Forbid();
+
+        if (branchId <= 0)
+        {
+            return BadRequest(new
+            {
+                message = "A valid branch ID is required."
+            });
+        }
+
+        var role = GetCurrentRole();
+
+        var query = _db.Users
+            .AsNoTracking()
+            .Where(x => x.BranchId == branchId);
+
+        // Super Admin can select a tenant using X-Tenant-Id.
+        if (role == "super_admin")
+        {
+            if (Request.Headers.TryGetValue(
+                    "X-Tenant-Id",
+                    out var tenantHeader))
+            {
+                if (!int.TryParse(
+                        tenantHeader.ToString(),
+                        out var selectedTenantId) ||
+                    selectedTenantId <= 0)
+                {
+                    return BadRequest(new
+                    {
+                        message = "The selected tenant ID is invalid."
+                    });
+                }
+
+                query = query.Where(
+                    x => x.TenantId == selectedTenantId);
+            }
+        }
+        else
+        {
+            var currentTenantId = GetCurrentTenantId();
+
+            if (currentTenantId is null || currentTenantId <= 0)
+            {
+                return Forbid();
+            }
+
+            query = query.Where(
+                x => x.TenantId == currentTenantId.Value);
+        }
+
+        // Branch Managers can only see employees in their own branch.
+        if (role == "branch_manager")
+        {
+            var currentBranchId = GetCurrentBranchId();
+
+            if (currentBranchId is null || currentBranchId <= 0)
+                return Forbid();
+
+            if (branchId != currentBranchId.Value)
+                return Forbid();
+
+            query = query.Where(
+                x => x.BranchId == currentBranchId.Value);
+        }
+
+        var employees = await query
+            .OrderBy(x => x.FullName)
+            .Select(x => new
+            {
+                id = x.Id,
+                fullName = x.FullName,
+                employeeCode = x.EmployeeCode,
+                email = x.Email,
+                designation = x.Designation,
+                department = x.Department,
+                tenantId = x.TenantId,
+                branchId = x.BranchId
+            })
+            .ToListAsync(cancellationToken);
+
+        return Ok(employees);
     }
 
     // ----------------------------------------------------
@@ -481,28 +582,34 @@ public sealed class UserDetailsController : ControllerBase
             });
         }
 
-        // Store documents outside wwwroot.
-        var storageDirectory = Path.Combine(
-            _environment.ContentRootPath,
-            "PrivateEmployeeDocuments");
+        if (!await UploadedFileSignatureValidator.IsValidAsync(
+        file, extension, cancellationToken))
+        {
+            return BadRequest(new
+            {
+                message = "The uploaded file does not match a valid PDF or image format."
+            });
+        }
 
-        Directory.CreateDirectory(storageDirectory);
+        // Store new employee documents in private S3 storage.
+        // Existing LocalPrivate documents remain supported by the download endpoint.
+        var storageKey =
+            $"employee-documents/tenant-{employee.TenantId}/employee-{employee.Id}/{Guid.NewGuid():N}{extension}";
 
-        var storageKey = $"{Guid.NewGuid():N}{extension}";
-        var filePath = Path.Combine(storageDirectory, storageKey);
+        var uploadedToS3 = false;
 
         try
         {
-            await using (var stream = new FileStream(
-                filePath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 81920,
-                useAsync: true))
+            await using (var stream = file.OpenReadStream())
             {
-                await file.CopyToAsync(stream, cancellationToken);
+                await _fileStorage.UploadAsync(
+                    storageKey,
+                    stream,
+                    contentType,
+                    cancellationToken);
             }
+
+            uploadedToS3 = true;
 
             var document = new UserDocument
             {
@@ -513,7 +620,7 @@ public sealed class UserDetailsController : ControllerBase
                 OriginalFileName = originalFileName,
                 ContentType = contentType,
                 FileSizeBytes = file.Length,
-                StorageProvider = "LocalPrivate",
+                StorageProvider = "S3",
                 StorageKey = storageKey,
                 VerificationStatus = "Pending",
                 UploadedByUserId = currentUserId.Value,
@@ -545,16 +652,21 @@ public sealed class UserDetailsController : ControllerBase
         }
         catch (Exception ex)
         {
-            try
+            if (uploadedToS3)
             {
-                if (System.IO.File.Exists(filePath))
-                    System.IO.File.Delete(filePath);
-            }
-            catch (IOException cleanupException)
-            {
-                _logger.LogError(
-                    cleanupException,
-                    "Failed to clean up an incomplete employee document upload.");
+                try
+                {
+                    await _fileStorage.DeleteAsync(
+                        storageKey,
+                        CancellationToken.None);
+                }
+                catch (Exception cleanupException)
+                {
+                    _logger.LogError(
+                        cleanupException,
+                        "Failed to clean up employee document from S3: {StorageKey}",
+                        storageKey);
+                }
             }
 
             _logger.LogError(
@@ -568,6 +680,7 @@ public sealed class UserDetailsController : ControllerBase
 
     // ----------------------------------------------------
     // DOWNLOAD A DOCUMENT
+
     // GET: api/UserDetails/documents/{documentId}/download
     // ----------------------------------------------------
 
@@ -607,47 +720,147 @@ public sealed class UserDetailsController : ControllerBase
             });
         }
 
-        if (string.IsNullOrWhiteSpace(document.StorageKey) ||
-            document.StorageKey != Path.GetFileName(document.StorageKey))
+        if (document.TenantId != employee.TenantId)
         {
             _logger.LogWarning(
-                "Invalid storage key found for document {DocumentId}.",
+                "Employee document tenant mismatch for document {DocumentId}.",
                 documentId);
 
-            return NotFound(new { message = "Document file not found." });
+            return NotFound(new
+            {
+                message = "Document file not found."
+            });
         }
 
-        var storageDirectory = Path.GetFullPath(Path.Combine(
-            _environment.ContentRootPath,
-            "PrivateEmployeeDocuments"));
+        if (string.IsNullOrWhiteSpace(document.StorageKey))
+        {
+            return NotFound(new
+            {
+                message = "Document file not found."
+            });
+        }
 
-        var filePath = Path.GetFullPath(Path.Combine(
-            storageDirectory,
-            document.StorageKey));
-
-        if (!filePath.StartsWith(
-                storageDirectory + Path.DirectorySeparatorChar,
+        // New documents are stored in S3 and remain private.
+        // Access is enforced by the authorization checks above this block.
+        if (string.Equals(
+                document.StorageProvider,
+                "S3",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return Forbid();
+            var expectedPrefix =
+                $"employee-documents/tenant-{document.TenantId}/employee-{document.UserId}/";
+
+            var keySegments = document.StorageKey.Split('/');
+
+            if (!document.StorageKey.StartsWith(
+                    expectedPrefix,
+                    StringComparison.Ordinal) ||
+                document.StorageKey.Contains('\\') ||
+                keySegments.Any(segment =>
+                    string.IsNullOrWhiteSpace(segment) || segment == "." || segment == ".."))
+            {
+                _logger.LogWarning(
+                    "Invalid S3 storage key found for document {DocumentId}.",
+                    documentId);
+
+                return NotFound(new
+                {
+                    message = "Document file not found."
+                });
+            }
+
+            try
+            {
+                var s3Stream = await _fileStorage.DownloadAsync(
+                    document.StorageKey,
+                    cancellationToken);
+
+                return File(
+                    s3Stream,
+                    document.ContentType,
+                    document.OriginalFileName,
+                    enableRangeProcessing: false);
+            }
+            catch (Amazon.S3.AmazonS3Exception ex)
+                when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "S3 employee document not found for document {DocumentId}.",
+                    documentId);
+
+                return NotFound(new
+                {
+                    message = "Document file not found."
+                });
+            }
         }
 
-        if (!System.IO.File.Exists(filePath))
-            return NotFound(new { message = "Document file not found." });
+        // Backward compatibility for documents uploaded before S3 migration.
+        if (string.Equals(
+                document.StorageProvider,
+                "LocalPrivate",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            if (document.StorageKey != Path.GetFileName(document.StorageKey))
+            {
+                _logger.LogWarning(
+                    "Invalid local storage key found for document {DocumentId}.",
+                    documentId);
 
-        var stream = new FileStream(
-            filePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 81920,
-            useAsync: true);
+                return NotFound(new
+                {
+                    message = "Document file not found."
+                });
+            }
 
-        return File(
-            stream,
-            document.ContentType,
-            document.OriginalFileName,
-            enableRangeProcessing: false);
+            var storageDirectory = Path.GetFullPath(Path.Combine(
+                _environment.ContentRootPath,
+                "PrivateEmployeeDocuments"));
+
+            var filePath = Path.GetFullPath(Path.Combine(
+                storageDirectory,
+                document.StorageKey));
+
+            if (!filePath.StartsWith(
+                    storageDirectory + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return Forbid();
+            }
+
+            if (!System.IO.File.Exists(filePath))
+            {
+                return NotFound(new
+                {
+                    message = "Document file not found."
+                });
+            }
+
+            var stream = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 81920,
+                useAsync: true);
+
+            return File(
+                stream,
+                document.ContentType,
+                document.OriginalFileName,
+                enableRangeProcessing: false);
+        }
+
+        _logger.LogWarning(
+            "Unknown storage provider for document {DocumentId}: {StorageProvider}",
+            documentId,
+            document.StorageProvider);
+
+        return NotFound(new
+        {
+            message = "Document file not found."
+        });
     }
 
     // ----------------------------------------------------

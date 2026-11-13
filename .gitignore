@@ -5,3 +5,8 @@
 *.suo
 *.userosscache
 *.sln.docstates
+
+# Local build and deployment files
+/publish/
+/EstusciaEMS-Backend.zip
+**/Properties/PublishProfiles/

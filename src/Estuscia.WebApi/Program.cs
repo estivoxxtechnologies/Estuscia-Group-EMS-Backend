@@ -8,8 +8,20 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Text.Json.Serialization;
+using Amazon.S3;
+using Amazon.Extensions.NETCore.Setup;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// AWS S3 configuration
+builder.Services.AddDefaultAWSOptions(
+    builder.Configuration.GetAWSOptions());
+
+builder.Services.AddAWSService<IAmazonS3>();
+
+builder.Services.AddScoped<
+    IFileStorageService,
+    S3FileStorageService>();
 
 // ============================================================
 // DATABASE
@@ -160,6 +172,7 @@ builder.Services.AddAuthorization();
 // CORS
 // ============================================================
 
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
@@ -167,12 +180,15 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(
                 "http://localhost:3000",
-                "http://localhost:5173")
+                "http://localhost:5173",
+                "https://estuscia-group-ems-front.vercel.app"
+            )
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
     });
 });
+
 
 
 // ============================================================
@@ -234,7 +250,8 @@ var app = builder.Build();
 // HTTP PIPELINE
 // ============================================================
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() ||
+    app.Configuration.GetValue<bool>("EnableSwagger"))
 {
     app.UseSwagger();
     app.UseSwaggerUI();

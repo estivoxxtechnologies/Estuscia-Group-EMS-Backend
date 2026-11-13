@@ -16,6 +16,7 @@ public class AuthController : ControllerBase
 {
     private readonly IAppDbContext _context;
     private readonly IJwtTokenGenerator _jwtGenerator;
+    private readonly IFileStorageService _fileStorage;
 
     // ============================================================
     // SYSTEM DEFAULT CURRENCY
@@ -36,11 +37,13 @@ public class AuthController : ControllerBase
     };
 
     public AuthController(
-        IAppDbContext context,
-        IJwtTokenGenerator jwtGenerator)
+    IAppDbContext context,
+    IJwtTokenGenerator jwtGenerator,
+    IFileStorageService fileStorage)
     {
         _context = context;
         _jwtGenerator = jwtGenerator;
+        _fileStorage = fileStorage;
     }
 
     // ============================================================
@@ -797,11 +800,36 @@ public class AuthController : ControllerBase
                 effectiveCurrency));
     }
 
+    private string? GetAvatarDisplayUrl(string? avatarUrl)
+    {
+        if (string.IsNullOrWhiteSpace(avatarUrl))
+            return null;
+
+        const string prefix = "/uploads/avatars/";
+
+        var path = avatarUrl;
+
+        if (Uri.TryCreate(avatarUrl, UriKind.Absolute, out var uri))
+            path = uri.AbsolutePath;
+
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return avatarUrl;
+
+        var fileName = Path.GetFileName(path);
+
+        if (string.IsNullOrWhiteSpace(fileName))
+            return avatarUrl;
+
+        var key = $"uploads/avatars/{fileName}";
+
+        return _fileStorage.GetPresignedUrl(key);
+    }
+
     // ============================================================
     // BUILD USER RESPONSE
     // ============================================================
 
-    private static object BuildUserResponse(
+    private object BuildUserResponse(
         ApplicationUser user,
         Currency effectiveCurrency)
     {
@@ -827,13 +855,11 @@ public class AuthController : ControllerBase
 
             branchName = user.Branch?.BranchName,
 
-            avatarUrl = user.AvatarUrl,
+            // Generate a fresh S3 URL for private avatar objects.
+            avatarUrl = GetAvatarDisplayUrl(user.AvatarUrl) ?? string.Empty,
 
             // ====================================================
             // EFFECTIVE CURRENCY
-            //
-            // This is the currency the frontend should use for
-            // financial calculations and display.
             // ====================================================
 
             currency = new
