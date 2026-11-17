@@ -10,3 +10,8 @@
 /publish/
 /EstusciaEMS-Backend.zip
 **/Properties/PublishProfiles/
+
+# Local development configuration and secrets
+**/appsettings.Development.json
+**/appsettings.Production.json
+**/secrets.json

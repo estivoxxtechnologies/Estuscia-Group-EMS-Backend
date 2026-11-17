@@ -5,7 +5,9 @@
       "launchBrowser": true,
       "launchUrl": "swagger",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "AWS_PROFILE": "estuscia-ems-dev",
+        "AWS_REGION": "ap-southeast-2"
       },
       "applicationUrl": "https://localhost:57332;http://localhost:57333"
     }
